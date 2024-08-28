@@ -2,10 +2,11 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{ self, Transfer };
-use crate::{VestingErrorCode, VestingSession};
+use crate::{ VestingErrorCode, VestingSession };
 
 /// Helper function to transfer tokens
 pub fn transfer_tokens_helper<'info>(
+    owner: &UncheckedAccount<'info>,
     from: &Account<'info, token::TokenAccount>,
     to: &Account<'info, token::TokenAccount>,
     authority: AccountInfo<'info>,
@@ -16,7 +17,13 @@ pub fn transfer_tokens_helper<'info>(
     bump: u8
 ) -> Result<()> {
     // Create seeds for PDA signing
-    let seeds = &[b"dual_auth", user.key.as_ref(), backend.key.as_ref(), &[bump]];
+    let seeds = &[
+        b"dual_auth",
+        owner.key.as_ref(),
+        user.key.as_ref(),
+        backend.key.as_ref(),
+        &[bump],
+    ];
     let signer = &[&seeds[..]];
 
     // Set up the accounts for the transfer
@@ -57,7 +64,9 @@ pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u
     // Calculate elapsed time since last withdrawal or start
     let elapsed_minutes = if vesting_session.last_withdraw_at > 0 {
         current_time.saturating_sub(
-            vesting_session.last_withdraw_at.checked_div(60).ok_or(VestingErrorCode::DivisionByZero)?
+            vesting_session.last_withdraw_at
+                .checked_div(60)
+                .ok_or(VestingErrorCode::DivisionByZero)?
         )
     } else {
         current_time.saturating_sub(

@@ -16,7 +16,7 @@ use crate::errors::*;
 use crate::helpers::{ calculate_amount_to_release, transfer_tokens_helper };
 
 // Declare the program ID
-declare_id!("5CzpYVBLG6akeQqbcGABdxffnCSmNqYDJc2JL7ZLe5jw");
+declare_id!("76A5c8av7N3o8ENxHUvrNeez44u4V6imcBFBhwwx99Pe");
 
 #[program]
 pub mod vesting_contract {
@@ -31,7 +31,8 @@ pub mod vesting_contract {
         let seeds = &[
             "mint".as_bytes(),
             metadata.name.as_bytes(),
-            &ctx.accounts.payer.key().to_bytes(),
+            &ctx.accounts.owner.key().to_bytes(),
+            &ctx.accounts.backend.key().to_bytes(),
             &[ctx.bumps.mint],
         ];
         let signer = [&seeds[..]];
@@ -55,7 +56,7 @@ pub mod vesting_contract {
                 update_authority: ctx.accounts.mint.to_account_info(),
                 mint: ctx.accounts.mint.to_account_info(),
                 metadata: ctx.accounts.metadata.to_account_info(),
-                mint_authority: ctx.accounts.mint.to_account_info(),
+                mint_authority: ctx.accounts.backend.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
                 rent: ctx.accounts.rent.to_account_info(),
             },
@@ -80,7 +81,8 @@ pub mod vesting_contract {
         let seeds = &[
             "mint".as_bytes(),
             metadata.name.as_bytes(),
-            &ctx.accounts.payer.key().to_bytes(),
+            &ctx.accounts.owner.key().to_bytes(),
+            &ctx.accounts.backend.key().to_bytes(),
             &[ctx.bumps.mint],
         ];
         let signer = [&seeds[..]];
@@ -90,7 +92,7 @@ pub mod vesting_contract {
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 MintTo {
-                    authority: ctx.accounts.mint.to_account_info(),
+                    authority: ctx.accounts.backend.to_account_info(),
                     to: ctx.accounts.destination.to_account_info(),
                     mint: ctx.accounts.mint.to_account_info(),
                 },
@@ -122,6 +124,7 @@ pub mod vesting_contract {
 
         // Transfer tokens from user to dual auth valued token account
         transfer_tokens_helper(
+            &ctx.accounts.owner,
             &ctx.accounts.user_valued_token_account,
             &ctx.accounts.dual_valued_token_account,
             ctx.accounts.user.to_account_info(),
@@ -134,6 +137,7 @@ pub mod vesting_contract {
 
         // Transfer equivalent tokens from backend to dual auth escrow token account
         transfer_tokens_helper(
+            &ctx.accounts.owner,
             &ctx.accounts.backend_escrow_token_account,
             &ctx.accounts.dual_escrow_token_account,
             ctx.accounts.backend.to_account_info(),
@@ -151,6 +155,7 @@ pub mod vesting_contract {
     pub fn transfer_tokens(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         // Use the helper function to transfer tokens
         transfer_tokens_helper(
+            &ctx.accounts.owner,
             &ctx.accounts.from,
             &ctx.accounts.to,
             ctx.accounts.dual_auth_account.to_account_info(),
@@ -183,6 +188,7 @@ pub mod vesting_contract {
 
         // Transfer tokens from dual escrow to backend escrow
         transfer_tokens_helper(
+            &ctx.accounts.owner,
             &ctx.accounts.dual_escrow_token_account,
             &ctx.accounts.backend_escrow_token_account,
             ctx.accounts.dual_auth_account.to_account_info(),
@@ -206,6 +212,7 @@ pub mod vesting_contract {
         if amount_to_release > 0 {
             // Transfer releasable tokens
             transfer_tokens_helper(
+                &ctx.accounts.owner,
                 &ctx.accounts.dual_valued_token_account,
                 &ctx.accounts.user_valued_token_account,
                 ctx.accounts.dual_auth_account.to_account_info(),
@@ -245,6 +252,7 @@ pub mod vesting_contract {
         if valued_amount_to_release > 0 {
             // Transfer releasable tokens to user
             transfer_tokens_helper(
+                &ctx.accounts.owner,
                 &ctx.accounts.dual_valued_token_account,
                 &ctx.accounts.user_valued_token_account,
                 ctx.accounts.dual_auth_account.to_account_info(),
@@ -266,6 +274,7 @@ pub mod vesting_contract {
         if escrow_amount_to_get_back > 0 {
             // Return remaining tokens to escrow
             transfer_tokens_helper(
+                &ctx.accounts.owner,
                 &ctx.accounts.backend_escrow_token_account,
                 &ctx.accounts.dual_escrow_token_account,
                 ctx.accounts.backend.to_account_info(),

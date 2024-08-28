@@ -1,14 +1,8 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { VestingContract } from "../target/types/vesting_contract";
+import { PublicKey, SendTransactionError } from "@solana/web3.js";
 import {
-  PublicKey,
-  SystemProgram,
-  SendTransactionError,
-} from "@solana/web3.js";
-import {
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   createMint,
   createAssociatedTokenAccount,
   mintTo,
@@ -16,6 +10,8 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { assert } from "chai";
+
+//run local validator using: solana-test-validator --reset --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --url https://api.mainnet-beta.solana.com
 
 describe("vesting-contract", () => {
   const provider = anchor.AnchorProvider.env();
@@ -29,6 +25,11 @@ describe("vesting-contract", () => {
 
   const user = anchor.web3.Keypair.generate();
   const backend = anchor.web3.Keypair.generate();
+  const owner = backend.publicKey;
+  const tokenName = "Test Token";
+  const tokenSymbol = "TST";
+  const tokenUri = "https://test.com";
+  const decimals = 9;
 
   let valuedTokenMint: PublicKey;
   let escrowTokenMint: PublicKey;
@@ -84,7 +85,7 @@ describe("vesting-contract", () => {
     await checkBalance(user.publicKey, "User");
     await checkBalance(backend.publicKey, "Backend");
 
-    console.log("Creating token mints...");
+    console.log("Creating Valued token mint...");
     try {
       // Create token mints
       valuedTokenMint = await createMint(
@@ -97,23 +98,22 @@ describe("vesting-contract", () => {
         { commitment: "confirmed" }
       );
       console.log("Valued token mint created:", valuedTokenMint.toBase58());
-
-      escrowTokenMint = await createMint(
-        provider.connection,
-        backend,
-        backend.publicKey,
-        null,
-        9,
-        undefined,
-        { commitment: "confirmed" }
-      );
-      console.log("Escrow token mint created:", escrowTokenMint.toBase58());
     } catch (error) {
-      console.error("Error creating token mints:", error);
+      console.error("Error creating Valued token mint:", error);
       throw error;
     }
 
-    console.log("Creating token accounts...");
+    escrowTokenMint = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("mint"),
+        Buffer.from(tokenName),
+        owner.toBuffer(),
+        backend.publicKey.toBuffer(),
+      ],
+      program.programId
+    )[0];
+
+    console.log("Creating Valued token account...");
     try {
       // Create token accounts
       userValuedTokenAccount = await createAssociatedTokenAccount(
@@ -127,24 +127,12 @@ describe("vesting-contract", () => {
         "User valued token account created:",
         userValuedTokenAccount.toBase58()
       );
-
-      backendEscrowTokenAccount = await createAssociatedTokenAccount(
-        provider.connection,
-        backend,
-        escrowTokenMint,
-        backend.publicKey,
-        { commitment: "confirmed" }
-      );
-      console.log(
-        "Backend escrow token account created:",
-        backendEscrowTokenAccount.toBase58()
-      );
     } catch (error) {
-      console.error("Error creating token accounts:", error);
+      console.error("Error creating Valued token account:", error);
       throw error;
     }
 
-    console.log("Minting tokens...");
+    console.log("Minting valued token...");
     try {
       // Mint some tokens to user and backend
       await mintTo(
@@ -158,18 +146,6 @@ describe("vesting-contract", () => {
         { commitment: "confirmed" }
       );
       console.log("Tokens minted to user valued token account");
-
-      await mintTo(
-        provider.connection,
-        backend,
-        escrowTokenMint,
-        backendEscrowTokenAccount,
-        backend,
-        1000000000,
-        [],
-        { commitment: "confirmed" }
-      );
-      console.log("Tokens minted to backend escrow token account");
     } catch (error) {
       console.error("Error minting tokens:", error);
       throw error;
@@ -179,6 +155,7 @@ describe("vesting-contract", () => {
     dualAuthAccount = PublicKey.findProgramAddressSync(
       [
         Buffer.from("dual_auth"),
+        owner.toBuffer(),
         user.publicKey.toBuffer(),
         backend.publicKey.toBuffer(),
       ],
@@ -211,6 +188,75 @@ describe("vesting-contract", () => {
     await checkBalance(backend.publicKey, "Backend (after setup)");
   });
 
+  it("Initializes a new token", async () => {
+    const metadataAddress = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata"),
+        tokenMetadataPorgramId.toBuffer(),
+        escrowTokenMint.toBuffer(),
+      ],
+      tokenMetadataPorgramId
+    )[0];
+
+    const tx = await program.methods
+      .initToken({
+        name: tokenName,
+        symbol: tokenSymbol,
+        uri: tokenUri,
+        decimals: decimals,
+      })
+      .accounts({
+        owner,
+        backend: backend.publicKey,
+        metadata: metadataAddress,
+        mint: escrowTokenMint,
+        payer: backend.publicKey,
+      })
+      .signers([backend])
+      .rpc();
+
+    await confirmTransaction(tx);
+    console.log("Token initialized. Transaction signature:", tx);
+  });
+
+  it("Mints tokens", async () => {
+    const quantity = new anchor.BN(1000000000);
+
+    backendEscrowTokenAccount = await createAssociatedTokenAccount(
+      provider.connection,
+      backend,
+      escrowTokenMint,
+      backend.publicKey,
+      { commitment: "confirmed" }
+    );
+    console.log(
+      "Backend escrow token account created:",
+      backendEscrowTokenAccount.toBase58()
+    );
+
+    const tx = await program.methods
+      .mintTokens(
+        {
+          name: tokenName,
+          symbol: tokenSymbol,
+          uri: tokenUri,
+          decimals: decimals,
+        },
+        quantity
+      )
+      .accounts({
+        owner,
+        backend: backend.publicKey,
+        mint: escrowTokenMint,
+        destination: backendEscrowTokenAccount,
+        payer: backend.publicKey,
+      })
+      .signers([backend])
+      .rpc();
+
+    console.log("Tokens minted. Transaction signature:", tx);
+  });
+
   it("Exchanges tokens with 1:1 ratio and initializes accounts", async () => {
     const exchangeAmount = new anchor.BN(500000000); // 500 tokens
 
@@ -237,6 +283,7 @@ describe("vesting-contract", () => {
       const tx = await program.methods
         .exchange(exchangeAmount)
         .accounts({
+          owner,
           dualAuthAccount,
           dualValuedTokenAccount,
           dualEscrowTokenAccount,
@@ -334,6 +381,7 @@ describe("vesting-contract", () => {
     const tx = await program.methods
       .transferTokens(transferAmount)
       .accounts({
+        owner,
         dualAuthAccount: dualAuthAccount,
         user: user.publicKey,
         backend: backend.publicKey,
@@ -383,6 +431,7 @@ describe("vesting-contract", () => {
     const tx = await program.methods
       .createVestingSession(vestingAmount)
       .accounts({
+        owner,
         vestingSessionsAccount,
         vestingSessionAccount,
         user: user.publicKey,
@@ -459,6 +508,7 @@ describe("vesting-contract", () => {
     const tx = await program.methods
       .sessionWithdraw()
       .accounts({
+        owner,
         vestingSessionAccount,
         dualAuthAccount,
         dualValuedTokenAccount,
@@ -520,6 +570,7 @@ describe("vesting-contract", () => {
     const tx = await program.methods
       .sessionCancel()
       .accounts({
+        owner,
         vestingSessionAccount,
         dualAuthAccount,
         dualValuedTokenAccount,
@@ -592,6 +643,7 @@ describe("vesting-contract", () => {
       await program.methods
         .sessionWithdraw()
         .accounts({
+          owner,
           vestingSessionAccount,
           dualAuthAccount,
           dualValuedTokenAccount,
@@ -626,6 +678,7 @@ describe("vesting-contract", () => {
     await program.methods
       .createVestingSession(vestingAmount)
       .accounts({
+        owner,
         vestingSessionsAccount,
         vestingSessionAccount,
         user: user.publicKey,
@@ -649,6 +702,7 @@ describe("vesting-contract", () => {
         program.methods
           .sessionWithdraw()
           .accounts({
+            owner,
             vestingSessionAccount,
             dualAuthAccount,
             dualValuedTokenAccount,
@@ -679,6 +733,7 @@ describe("vesting-contract", () => {
       await program.methods
         .sessionWithdraw()
         .accounts({
+          owner,
           vestingSessionAccount,
           dualAuthAccount,
           dualValuedTokenAccount,
@@ -703,6 +758,7 @@ describe("vesting-contract", () => {
       await program.methods
         .sessionCancel()
         .accounts({
+          owner,
           vestingSessionAccount,
           dualAuthAccount,
           dualValuedTokenAccount,
@@ -731,6 +787,7 @@ describe("vesting-contract", () => {
       await program.methods
         .transferTokens(amount)
         .accounts({
+          owner,
           dualAuthAccount,
           user: maliciousUser.publicKey,
           backend: backend.publicKey,
@@ -747,85 +804,3 @@ describe("vesting-contract", () => {
     }
   });
 });
-
-// it("Initializes a new token", async () => {
-//   const tokenName = "Test Token";
-//   const tokenSymbol = "TST";
-//   const tokenUri = "https://test.com";
-//   const decimals = 9;
-
-//   const metadataAddress = PublicKey.findProgramAddressSync(
-//     [
-//       Buffer.from("metadata"),
-//       tokenMetadataPorgramId.toBuffer(),
-//       escrowTokenMint.toBuffer(),
-//     ],
-//     tokenMetadataPorgramId
-//   )[0];
-
-//   const tx = await program.methods
-//     .initToken({
-//       name: tokenName,
-//       symbol: tokenSymbol,
-//       uri: tokenUri,
-//       decimals: decimals,
-//     })
-//     .accounts({
-//       metadata: metadataAddress,
-//       mint: escrowTokenMint,
-//       payer: payer.publicKey,
-//       rent: SYSVAR_RENT_PUBKEY,
-//       systemProgram: SystemProgram.programId,
-//       tokenProgram: TOKEN_PROGRAM_ID,
-//       tokenMetadataProgram: tokenMetadataPorgramId,
-//     })
-//     .signers([payer])
-//     .rpc();
-
-//   await confirmTransaction(tx);
-//   console.log("Token initialized. Transaction signature:", tx);
-// });
-
-// it("Mints tokens", async () => {
-//   const tokenName = "Test Token";
-//   const tokenSymbol = "TST";
-//   const tokenUri = "https://test.com";
-//   const decimals = 9;
-//   const quantity = new anchor.BN(100000000); // 100 tokens
-
-//   const [mint] = PublicKey.findProgramAddressSync(
-//     [Buffer.from("mint"), Buffer.from(tokenName), payer.publicKey.toBuffer()],
-//     program.programId
-//   );
-
-//   const destinationAccount = await createAssociatedTokenAccount(
-//     provider.connection,
-//     payer,
-//     mint,
-//     payer.publicKey
-//   );
-
-//   const tx = await program.methods
-//     .mintTokens(
-//       {
-//         name: tokenName,
-//         symbol: tokenSymbol,
-//         uri: tokenUri,
-//         decimals: decimals,
-//       },
-//       quantity
-//     )
-//     .accounts({
-//       mint: mint,
-//       destination: destinationAccount,
-//       payer: payer.publicKey,
-//       rent: SYSVAR_RENT_PUBKEY,
-//       systemProgram: SystemProgram.programId,
-//       tokenProgram: TOKEN_PROGRAM_ID,
-//       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-//     })
-//     .signers([payer])
-//     .rpc();
-
-//   console.log("Tokens minted. Transaction signature:", tx);
-// });

@@ -21,16 +21,19 @@ pub struct InitTokenParams {
     params: InitTokenParams
 )]
 pub struct InitToken<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
+    pub backend: Signer<'info>,
     /// CHECK: New Metaplex Account being created
     #[account(mut)]
     pub metadata: UncheckedAccount<'info>,
     #[account(
         init,
-        seeds = [b"mint", params.name.as_bytes(), payer.key().as_ref()],
+        seeds = [b"mint", params.name.as_bytes(), owner.key().as_ref(), backend.key().as_ref()],
         bump,
         payer = payer,
         mint::decimals = params.decimals,
-        mint::authority = mint
+        mint::authority = backend
     )]
     pub mint: Account<'info, Mint>,
     #[account(mut)]
@@ -47,18 +50,21 @@ pub struct InitToken<'info> {
     params: InitTokenParams
 )]
 pub struct MintTokens<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
+    pub backend: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"mint",params.name.as_bytes(),payer.key().as_ref()],
+        seeds = [b"mint", params.name.as_bytes(), owner.key().as_ref(), backend.key().as_ref()],
         bump,
-        mint::authority = mint,
+        mint::authority = backend,
     )]
     pub mint: Account<'info, Mint>,
     #[account(
         init_if_needed,
         payer = payer,
         associated_token::mint = mint,
-        associated_token::authority = payer
+        associated_token::authority = backend
     )]
     pub destination: Account<'info, TokenAccount>,
     #[account(mut)]
@@ -82,11 +88,13 @@ pub struct DualAuthAccount {
 #[derive(Accounts)]
 #[instruction(amount: u64)]
 pub struct Exchange<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
     #[account(
         init_if_needed,
         payer = user,
         space = 8 + size_of::<DualAuthAccount>(),
-        seeds = [b"dual_auth", user.key().as_ref(), backend.key().as_ref()],
+        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
         bump
     )]
     pub dual_auth_account: Box<Account<'info, DualAuthAccount>>,
@@ -124,8 +132,10 @@ pub struct Exchange<'info> {
 /// Accounts required for transferring tokens
 #[derive(Accounts)]
 pub struct TransferTokens<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
     #[account(
-        seeds = [b"dual_auth", user.key().as_ref(), backend.key().as_ref()],
+        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
         bump,
         has_one = user,
         has_one = backend
@@ -166,6 +176,8 @@ pub struct VestingSession {
 /// Accounts required for creating a vesting session
 #[derive(Accounts)]
 pub struct CreateVestingSession<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
     #[account(
         init_if_needed,
         payer = user,
@@ -193,12 +205,11 @@ pub struct CreateVestingSession<'info> {
     pub vesting_session_account: Account<'info, VestingSession>,
     #[account(mut)]
     pub user: Signer<'info>,
-    #[account(mut)]
     pub backend: Signer<'info>,
     pub valued_token_mint: Account<'info, Mint>,
     pub escrow_token_mint: Account<'info, Mint>,
     #[account(
-        seeds = [b"dual_auth", user.key().as_ref(), backend.key().as_ref()],
+        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
         bump,
         has_one = user,
         has_one = backend
@@ -223,11 +234,13 @@ pub struct CreateVestingSession<'info> {
 /// Accounts required for withdrawing from a vesting session
 #[derive(Accounts)]
 pub struct SessionWithdraw<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
     #[account(mut)]
     pub vesting_session_account: Account<'info, VestingSession>,
 
     #[account(
-        seeds = [b"dual_auth", user.key().as_ref(), backend.key().as_ref()],
+        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
         bump,
         has_one = user,
         has_one = backend
@@ -240,11 +253,10 @@ pub struct SessionWithdraw<'info> {
     )]
     pub dual_valued_token_account: Account<'info, TokenAccount>,
 
-    #[account(mut)]
     pub user: Signer<'info>,
     #[account(mut, associated_token::mint = valued_token_mint, associated_token::authority = user)]
     pub user_valued_token_account: Account<'info, TokenAccount>,
-    #[account(mut)]
+
     pub backend: Signer<'info>,
     pub valued_token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
@@ -254,11 +266,13 @@ pub struct SessionWithdraw<'info> {
 /// Accounts required for cancelling a vesting session
 #[derive(Accounts)]
 pub struct SessionCancelation<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
     #[account(mut)]
     pub vesting_session_account: Account<'info, VestingSession>,
 
     #[account(
-        seeds = [b"dual_auth", user.key().as_ref(), backend.key().as_ref()],
+        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
         bump,
         has_one = user,
         has_one = backend
@@ -277,7 +291,6 @@ pub struct SessionCancelation<'info> {
     )]
     pub dual_escrow_token_account: Account<'info, TokenAccount>,
 
-    #[account(mut)]
     pub user: Signer<'info>,
     #[account(mut, associated_token::mint = valued_token_mint, associated_token::authority = user)]
     pub user_valued_token_account: Account<'info, TokenAccount>,
