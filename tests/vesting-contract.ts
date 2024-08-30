@@ -11,7 +11,7 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 
-//run local validator using: solana-test-validator --reset --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --url https://api.mainnet-beta.solana.com
+//run local validator using:  solana-test-validator --reset --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --deactivate-feature EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33 --url https://api.mainnet-beta.solana.com
 
 describe("vesting-contract", () => {
   const provider = anchor.AnchorProvider.env();
@@ -257,6 +257,28 @@ describe("vesting-contract", () => {
     console.log("Tokens minted. Transaction signature:", tx);
   });
 
+  it("Initializes a new dual auth account", async () => {
+    const tx = await program.methods
+      .initializeDualAuthAccount()
+      .accounts({
+        owner,
+        dualAuthAccount,
+        user: user.publicKey,
+        backend: backend.publicKey,
+      })
+      .signers([user, backend])
+      .rpc();
+
+    await confirmTransaction(tx);
+
+    assert.isTrue(
+      await accountExists(dualAuthAccount),
+      "Dual auth account should exist after initialization"
+    );
+
+    console.log("Dual auth account initialized. Transaction signature:", tx);
+  });
+
   it("Exchanges tokens with 1:1 ratio and initializes accounts", async () => {
     const exchangeAmount = new anchor.BN(500000000); // 500 tokens
 
@@ -266,10 +288,6 @@ describe("vesting-contract", () => {
     );
 
     // Check that accounts don't exist before exchange
-    assert.isFalse(
-      await accountExists(dualAuthAccount),
-      "Dual auth account should not exist before exchange"
-    );
     assert.isFalse(
       await accountExists(dualValuedTokenAccount),
       "Dual valued token account should not exist before exchange"

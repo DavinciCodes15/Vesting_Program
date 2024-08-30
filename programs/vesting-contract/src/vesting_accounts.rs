@@ -4,7 +4,6 @@ use anchor_spl::{
     metadata::Metadata as Metaplex,
     token::{ Mint, Token, TokenAccount },
 };
-use std::mem::size_of;
 
 /// Parameters for initializing a new token
 #[derive(AnchorSerialize, AnchorDeserialize, Debug, Clone)]
@@ -77,11 +76,30 @@ pub struct MintTokens<'info> {
 
 /// Account structure for dual authorization
 #[account]
+#[derive(InitSpace)]
 pub struct DualAuthAccount {
     pub user: Pubkey, // Public key of the user
     pub backend: Pubkey, // Public key of the backend authority
     // pub valued_token_account: Pubkey, // Account holding the primary token
     //pub escrow_token_account: Pubkey, // Account holding tokens in escrow
+}
+
+#[derive(Accounts)]
+pub struct InitializeDualAuthAccount<'info> {
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub owner: UncheckedAccount<'info>,
+    #[account(
+        init,
+        payer = user,
+        space = 8 + DualAuthAccount::INIT_SPACE,
+        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        bump
+    )]
+    pub dual_auth_account: Account<'info, DualAuthAccount>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    pub backend: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 /// Accounts required for token exchange
@@ -91,9 +109,6 @@ pub struct Exchange<'info> {
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub owner: UncheckedAccount<'info>,
     #[account(
-        init_if_needed,
-        payer = user,
-        space = 8 + size_of::<DualAuthAccount>(),
         seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
         bump
     )]
@@ -157,12 +172,14 @@ pub struct TransferTokens<'info> {
 
 /// Account structure for tracking all vesting sessions
 #[account]
+#[derive(InitSpace)]
 pub struct VestingSessionsAccount {
     pub last_session_id: u64, // ID to be used for the next vesting session
 }
 
 /// Account structure for an individual vesting session
 #[account]
+#[derive(InitSpace)]
 pub struct VestingSession {
     pub id: u64, // Unique identifier for this session
     pub vesting_sessions_account: Pubkey, // Parent account tracking all sessions
@@ -188,7 +205,7 @@ pub struct CreateVestingSession<'info> {
             escrow_token_mint.key().as_ref(),
         ],
         bump,
-        space = 8 + size_of::<VestingSessionsAccount>()
+        space = 8 + VestingSessionsAccount::INIT_SPACE
     )]
     pub vesting_sessions_account: Account<'info, VestingSessionsAccount>,
     #[account(
@@ -200,7 +217,7 @@ pub struct CreateVestingSession<'info> {
             vesting_sessions_account.last_session_id.to_le_bytes().as_ref(),
         ],
         bump,
-        space = 8 + size_of::<VestingSession>()
+        space = 8 + VestingSession::INIT_SPACE
     )]
     pub vesting_session_account: Account<'info, VestingSession>,
     #[account(mut)]

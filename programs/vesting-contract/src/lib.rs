@@ -16,7 +16,7 @@ use crate::errors::*;
 use crate::helpers::{ calculate_amount_to_release, transfer_tokens_helper };
 
 // Declare the program ID
-declare_id!("76A5c8av7N3o8ENxHUvrNeez44u4V6imcBFBhwwx99Pe");
+declare_id!("4E8Rvx8b5yZMBb5nEu26ivchMg4Dw1ZMo5MHFtFSu7Jn");
 
 #[program]
 pub mod vesting_contract {
@@ -104,19 +104,16 @@ pub mod vesting_contract {
         Ok(())
     }
 
+    /// Initializes a new dual authorization account
+    pub fn initialize_dual_auth_account(ctx: Context<InitializeDualAuthAccount>) -> Result<()> {
+        ctx.accounts.dual_auth_account.user = ctx.accounts.user.key();
+        ctx.accounts.dual_auth_account.backend = ctx.accounts.backend.key();
+        Ok(())
+    }
+
     /// Exchanges tokens between user and dual auth accounts
     #[inline(never)]
     pub fn exchange(ctx: Context<Exchange>, amount: u64) -> Result<()> {
-        let dual_auth_account = &mut ctx.accounts.dual_auth_account;
-        let user_account = &ctx.accounts.user;
-
-        // Initialize the DualAuthAccount if it's new
-        if dual_auth_account.user == Pubkey::default() {
-            // Set up the dual auth account with user and backend keys
-            dual_auth_account.user = *user_account.key;
-            dual_auth_account.backend = *ctx.accounts.backend.key;
-        }
-
         // Check if the amount is sufficient (at least 6 months worth)
         if amount < SIX_MONTHS_IN_MINUTES {
             return Err(VestingErrorCode::MinimumAmountNotMet.into());

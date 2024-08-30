@@ -5,14 +5,14 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-vesting_contract = "76A5c8av7N3o8ENxHUvrNeez44u4V6imcBFBhwwx99Pe"
+vesting_contract = "4E8Rvx8b5yZMBb5nEu26ivchMg4Dw1ZMo5MHFtFSu7Jn"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "Localnet"
-wallet = "/home/wsl/.config/solana/id.json"
+wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
