@@ -106,8 +106,11 @@ pub mod vesting_contract {
 
     /// Initializes a new dual authorization account
     pub fn initialize_dual_auth_account(ctx: Context<InitializeDualAuthAccount>) -> Result<()> {
+        // ctx.accounts.dual_auth_account.owner = ctx.accounts.owner.key();
         ctx.accounts.dual_auth_account.user = ctx.accounts.user.key();
         ctx.accounts.dual_auth_account.backend = ctx.accounts.backend.key();
+        // ctx.accounts.dual_auth_account.valued_token_mint = ctx.accounts.valued_token_mint.key();
+        // ctx.accounts.dual_auth_account.escrow_token_mint = ctx.accounts.escrow_token_mint.key();
         Ok(())
     }
 
@@ -127,6 +130,8 @@ pub mod vesting_contract {
             ctx.accounts.user.to_account_info(),
             &ctx.accounts.user,
             &ctx.accounts.backend,
+            &ctx.accounts.valued_token_mint,
+            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
             ctx.bumps.dual_auth_account
@@ -140,6 +145,8 @@ pub mod vesting_contract {
             ctx.accounts.backend.to_account_info(),
             &ctx.accounts.user,
             &ctx.accounts.backend,
+            &ctx.accounts.valued_token_mint,
+            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
             ctx.bumps.dual_auth_account
@@ -158,6 +165,8 @@ pub mod vesting_contract {
             ctx.accounts.dual_auth_account.to_account_info(),
             &ctx.accounts.user,
             &ctx.accounts.backend,
+            &ctx.accounts.valued_token_mint,
+            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
             ctx.bumps.dual_auth_account
@@ -191,6 +200,8 @@ pub mod vesting_contract {
             ctx.accounts.dual_auth_account.to_account_info(),
             &ctx.accounts.user,
             &ctx.accounts.backend,
+            &ctx.accounts.valued_token_mint,
+            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
             ctx.bumps.dual_auth_account
@@ -215,6 +226,8 @@ pub mod vesting_contract {
                 ctx.accounts.dual_auth_account.to_account_info(),
                 &ctx.accounts.user,
                 &ctx.accounts.backend,
+                &ctx.accounts.valued_token_mint,
+                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.token_program,
                 amount_to_release,
                 ctx.bumps.dual_auth_account
@@ -255,6 +268,8 @@ pub mod vesting_contract {
                 ctx.accounts.dual_auth_account.to_account_info(),
                 &ctx.accounts.user,
                 &ctx.accounts.backend,
+                &ctx.accounts.valued_token_mint,
+                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.token_program,
                 valued_amount_to_release,
                 ctx.bumps.dual_auth_account
@@ -277,6 +292,8 @@ pub mod vesting_contract {
                 ctx.accounts.backend.to_account_info(),
                 &ctx.accounts.user,
                 &ctx.accounts.backend,
+                &ctx.accounts.valued_token_mint,
+                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.token_program,
                 escrow_amount_to_get_back,
                 ctx.bumps.dual_auth_account

@@ -150,7 +150,7 @@ describe("vesting-contract", () => {
       console.error("Error minting tokens:", error);
       throw error;
     }
-
+    
     // Derive PDA addresses
     dualAuthAccount = PublicKey.findProgramAddressSync(
       [
@@ -158,6 +158,8 @@ describe("vesting-contract", () => {
         owner.toBuffer(),
         user.publicKey.toBuffer(),
         backend.publicKey.toBuffer(),
+        valuedTokenMint.toBuffer(),
+        escrowTokenMint.toBuffer(),
       ],
       program.programId
     )[0];
@@ -258,6 +260,7 @@ describe("vesting-contract", () => {
   });
 
   it("Initializes a new dual auth account", async () => {
+    
     const tx = await program.methods
       .initializeDualAuthAccount()
       .accounts({
@@ -265,8 +268,10 @@ describe("vesting-contract", () => {
         dualAuthAccount,
         user: user.publicKey,
         backend: backend.publicKey,
+        valuedTokenMint,
+        escrowTokenMint,
       })
-      .signers([user, backend])
+      .signers([backend, user])
       .rpc();
 
     await confirmTransaction(tx);
@@ -312,7 +317,7 @@ describe("vesting-contract", () => {
           valuedTokenMint,
           escrowTokenMint,
         })
-        .signers([user, backend])
+        .signers([backend, user])
         .rpc();
 
       await confirmTransaction(tx);
@@ -405,8 +410,10 @@ describe("vesting-contract", () => {
         backend: backend.publicKey,
         from: dualValuedTokenAccount,
         to: userValuedTokenAccount,
+        valuedTokenMint,
+        escrowTokenMint
       })
-      .signers([user, backend])
+      .signers([backend, user])
       .rpc();
 
     await confirmTransaction(tx);
@@ -460,7 +467,7 @@ describe("vesting-contract", () => {
         backendEscrowTokenAccount,
         dualEscrowTokenAccount,
       })
-      .signers([user, backend])
+      .signers([backend, user])
       .rpc();
 
     await confirmTransaction(tx);
@@ -534,8 +541,9 @@ describe("vesting-contract", () => {
         userValuedTokenAccount,
         backend: backend.publicKey,
         valuedTokenMint,
+        escrowTokenMint
       })
-      .signers([user, backend])
+      .signers([backend, user])
       .rpc();
 
     await confirmTransaction(tx);
@@ -600,7 +608,7 @@ describe("vesting-contract", () => {
         valuedTokenMint,
         escrowTokenMint,
       })
-      .signers([user, backend])
+      .signers([backend, user])
       .rpc();
 
     await confirmTransaction(tx);
@@ -670,7 +678,7 @@ describe("vesting-contract", () => {
           backend: backend.publicKey,
           valuedTokenMint,
         })
-        .signers([user, backend])
+        .signers([backend, user])
         .rpc();
 
       assert.fail("Should not be able to withdraw after cancellation");
@@ -707,7 +715,7 @@ describe("vesting-contract", () => {
         backendEscrowTokenAccount,
         dualEscrowTokenAccount,
       })
-      .signers([user, backend])
+      .signers([backend, user])
       .rpc();
 
     // Wait for a minute to pass for vesting
@@ -729,7 +737,7 @@ describe("vesting-contract", () => {
             backend: backend.publicKey,
             valuedTokenMint,
           })
-          .signers([user, backend])
+          .signers([backend, user])
           .rpc()
       );
     }

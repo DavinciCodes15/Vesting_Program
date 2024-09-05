@@ -1,7 +1,7 @@
 /// Helper functions for the contract
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{ self, Transfer };
+use anchor_spl::token::{ self, Mint, Transfer };
 use crate::{ VestingErrorCode, VestingSession };
 
 /// Helper function to transfer tokens
@@ -12,16 +12,22 @@ pub fn transfer_tokens_helper<'info>(
     authority: AccountInfo<'info>,
     user: &Signer<'info>,
     backend: &Signer<'info>,
+    valued_token_mint: &Account<'info, Mint>,
+    escrow_token_mint: &Account<'info, Mint>,
     token_program: &Program<'info, token::Token>,
     amount: u64,
     bump: u8
 ) -> Result<()> {
     // Create seeds for PDA signing
+    let valued_mint = valued_token_mint.key();
+    let escrow_mint = escrow_token_mint.key();
     let seeds = &[
         b"dual_auth",
         owner.key.as_ref(),
         user.key.as_ref(),
         backend.key.as_ref(),
+        valued_mint.as_ref(),
+        escrow_mint.as_ref(),
         &[bump],
     ];
     let signer = &[&seeds[..]];

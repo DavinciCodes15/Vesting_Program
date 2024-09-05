@@ -78,10 +78,11 @@ pub struct MintTokens<'info> {
 #[account]
 #[derive(InitSpace)]
 pub struct DualAuthAccount {
+    // pub owner: Pubkey, // Public key of the owner
     pub user: Pubkey, // Public key of the user
     pub backend: Pubkey, // Public key of the backend authority
-    // pub valued_token_account: Pubkey, // Account holding the primary token
-    //pub escrow_token_account: Pubkey, // Account holding tokens in escrow
+    // pub valued_token_mint: Pubkey, // Public key of the valued token mint
+    // pub escrow_token_mint: Pubkey, // public key of the escrow token mint
 }
 
 #[derive(Accounts)]
@@ -92,13 +93,22 @@ pub struct InitializeDualAuthAccount<'info> {
         init,
         payer = user,
         space = 8 + DualAuthAccount::INIT_SPACE,
-        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"dual_auth",
+            owner.key().as_ref(),
+            user.key().as_ref(),
+            backend.key().as_ref(),
+            valued_token_mint.key().as_ref(),
+            escrow_token_mint.key().as_ref(),
+        ],
         bump
     )]
     pub dual_auth_account: Account<'info, DualAuthAccount>,
     #[account(mut)]
     pub user: Signer<'info>,
     pub backend: Signer<'info>,
+    pub valued_token_mint: Account<'info, Mint>,
+    pub escrow_token_mint: Account<'info, Mint>,
     pub system_program: Program<'info, System>,
 }
 
@@ -109,7 +119,14 @@ pub struct Exchange<'info> {
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub owner: UncheckedAccount<'info>,
     #[account(
-        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"dual_auth",
+            owner.key().as_ref(),
+            user.key().as_ref(),
+            backend.key().as_ref(),
+            valued_token_mint.key().as_ref(),
+            escrow_token_mint.key().as_ref(),
+        ],
         bump
     )]
     pub dual_auth_account: Box<Account<'info, DualAuthAccount>>,
@@ -150,7 +167,14 @@ pub struct TransferTokens<'info> {
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub owner: UncheckedAccount<'info>,
     #[account(
-        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"dual_auth",
+            owner.key().as_ref(),
+            user.key().as_ref(),
+            backend.key().as_ref(),
+            valued_token_mint.key().as_ref(),
+            escrow_token_mint.key().as_ref(),
+        ],
         bump,
         has_one = user,
         has_one = backend
@@ -167,6 +191,8 @@ pub struct TransferTokens<'info> {
         constraint = to.owner == dual_auth_account.key() || to.owner == dual_auth_account.user.key() || to.owner == dual_auth_account.backend.key()
     )]
     pub to: Account<'info, TokenAccount>,
+    pub valued_token_mint: Account<'info, Mint>,
+    pub escrow_token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
 }
 
@@ -226,7 +252,14 @@ pub struct CreateVestingSession<'info> {
     pub valued_token_mint: Account<'info, Mint>,
     pub escrow_token_mint: Account<'info, Mint>,
     #[account(
-        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"dual_auth",
+            owner.key().as_ref(),
+            user.key().as_ref(),
+            backend.key().as_ref(),
+            valued_token_mint.key().as_ref(),
+            escrow_token_mint.key().as_ref(),
+        ],
         bump,
         has_one = user,
         has_one = backend
@@ -257,7 +290,14 @@ pub struct SessionWithdraw<'info> {
     pub vesting_session_account: Account<'info, VestingSession>,
 
     #[account(
-        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"dual_auth",
+            owner.key().as_ref(),
+            user.key().as_ref(),
+            backend.key().as_ref(),
+            valued_token_mint.key().as_ref(),
+            escrow_token_mint.key().as_ref(),
+        ],
         bump,
         has_one = user,
         has_one = backend
@@ -276,6 +316,7 @@ pub struct SessionWithdraw<'info> {
 
     pub backend: Signer<'info>,
     pub valued_token_mint: Account<'info, Mint>,
+    pub escrow_token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
@@ -289,7 +330,14 @@ pub struct SessionCancelation<'info> {
     pub vesting_session_account: Account<'info, VestingSession>,
 
     #[account(
-        seeds = [b"dual_auth", owner.key().as_ref(), user.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"dual_auth",
+            owner.key().as_ref(),
+            user.key().as_ref(),
+            backend.key().as_ref(),
+            valued_token_mint.key().as_ref(),
+            escrow_token_mint.key().as_ref(),
+        ],
         bump,
         has_one = user,
         has_one = backend
