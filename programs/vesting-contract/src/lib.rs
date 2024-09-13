@@ -16,14 +16,15 @@ use crate::errors::*;
 use crate::helpers::{ calculate_amount_to_release, transfer_tokens_helper };
 
 // Declare the program ID
-declare_id!("4E8Rvx8b5yZMBb5nEu26ivchMg4Dw1ZMo5MHFtFSu7Jn");
+declare_id!("bsYGzNF5E3ZeinVVBA7Ah81yEkcUmYtsKxPPAqJ11nF");
 
 #[program]
 pub mod vesting_contract {
     use super::*;
 
     // Constant representing six months in minutes
-    const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60; // 180 days * 24 hours * 60 minutes
+    // const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60; // 180 days * 24 hours * 60 minutes
+    const MINIMUM_AMOUNT: u64 = 1000000000;
 
     /// Initializes a new token with metadata
     pub fn init_token(ctx: Context<InitToken>, metadata: InitTokenParams) -> Result<()> {
@@ -117,8 +118,8 @@ pub mod vesting_contract {
     /// Exchanges tokens between user and dual auth accounts
     #[inline(never)]
     pub fn exchange(ctx: Context<Exchange>, amount: u64) -> Result<()> {
-        // Check if the amount is sufficient (at least 6 months worth)
-        if amount < SIX_MONTHS_IN_MINUTES {
+        // Check if the amount is sufficient (at the minimum value)
+        if amount < MINIMUM_AMOUNT {
             return Err(VestingErrorCode::MinimumAmountNotMet.into());
         }
 
@@ -180,6 +181,11 @@ pub mod vesting_contract {
         let vesting_account = &mut ctx.accounts.vesting_sessions_account;
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
+        // Check if the amount is sufficient (at the minimum value)
+        if amount < MINIMUM_AMOUNT {
+            return Err(VestingErrorCode::MinimumAmountNotMet.into());
+        }
+        
         // Initialize vesting session with details
         vesting_session.id = vesting_account.last_session_id;
         vesting_session.vesting_sessions_account = vesting_account.key();

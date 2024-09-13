@@ -141,7 +141,7 @@ describe("vesting-contract", () => {
         valuedTokenMint,
         userValuedTokenAccount,
         user,
-        1000000000,
+        1000000000000,
         [],
         { commitment: "confirmed" }
       );
@@ -222,7 +222,7 @@ describe("vesting-contract", () => {
   });
 
   it("Mints tokens", async () => {
-    const quantity = new anchor.BN(1000000000);
+    const quantity = new anchor.BN(1000000000000);
 
     backendEscrowTokenAccount = await createAssociatedTokenAccount(
       provider.connection,
@@ -285,7 +285,7 @@ describe("vesting-contract", () => {
   });
 
   it("Exchanges tokens with 1:1 ratio and initializes accounts", async () => {
-    const exchangeAmount = new anchor.BN(500000000); // 500 tokens
+    const exchangeAmount = new anchor.BN(500000000000); // 500 tokens
 
     const userInitialBalance = await getTokenBalance(userValuedTokenAccount);
     const backendInitialBalance = await getTokenBalance(
@@ -435,7 +435,7 @@ describe("vesting-contract", () => {
   });
 
   it("Creates a vesting session with correct amount", async () => {
-    const vestingAmount = new anchor.BN(300000000); // 300 tokens
+    const vestingAmount = new anchor.BN(300000000000); // 300 tokens
 
     const initialBackendBalance = await getTokenBalance(
       backendEscrowTokenAccount
@@ -700,7 +700,7 @@ describe("vesting-contract", () => {
       program.programId
     );
 
-    const vestingAmount = new anchor.BN(100000000);
+    const vestingAmount = new anchor.BN(1000000000);
     await program.methods
       .createVestingSession(vestingAmount)
       .accounts({
