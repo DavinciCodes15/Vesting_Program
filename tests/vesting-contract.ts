@@ -151,7 +151,7 @@ describe("vesting-contract", () => {
       console.error("Error minting tokens:", error);
       throw error;
     }
-    
+
     // Derive PDA addresses
     dualAuthAccount = PublicKey.findProgramAddressSync(
       [
@@ -254,7 +254,7 @@ describe("vesting-contract", () => {
         mint: escrowTokenMint,
         destination: backendEscrowTokenAccount,
         payer: backend.publicKey,
-        valuedTokenMint
+        valuedTokenMint,
       })
       .signers([backend])
       .rpc();
@@ -263,7 +263,6 @@ describe("vesting-contract", () => {
   });
 
   it("Initializes a new dual auth account", async () => {
-    
     const tx = await program.methods
       .initializeDualAuthAccount()
       .accounts({
@@ -414,7 +413,7 @@ describe("vesting-contract", () => {
         from: dualValuedTokenAccount,
         to: userValuedTokenAccount,
         valuedTokenMint,
-        escrowTokenMint
+        escrowTokenMint,
       })
       .signers([backend, user])
       .rpc();
@@ -544,7 +543,7 @@ describe("vesting-contract", () => {
         userValuedTokenAccount,
         backend: backend.publicKey,
         valuedTokenMint,
-        escrowTokenMint
+        escrowTokenMint,
       })
       .signers([backend, user])
       .rpc();
@@ -571,7 +570,8 @@ describe("vesting-contract", () => {
       vestingSessionAccount
     );
     assert(
-      vestingSessionData.amountWithdrawn.toNumber() > 0,
+      vestingSessionData.amountWithdrawn.toNumber() >=
+        finalUserBalance - initialUserBalance,
       "Withdrawn amount should be greater than 0"
     );
     assert(
@@ -655,6 +655,25 @@ describe("vesting-contract", () => {
       "Backend escrow balance should decrease or stay the same."
     );
 
+    const amountReleasedToUser = finalUserBalance - initialUserBalance;
+    const amountReturnedToEscrow =
+      finalDualEscrowBalance - initialDualEscrowBalance;
+    const amountRemovedFromDualValued =
+      initialDualValuedBalance - finalDualValuedBalance;
+
+    console.log("Amount released to user:", amountReleasedToUser);
+    console.log("Amount returned to escrow:", amountReturnedToEscrow);
+    console.log(
+      "Amount removed from dual valued:",
+      amountRemovedFromDualValued
+    );
+
+    assert.approximately(
+      amountReleasedToUser,
+      amountRemovedFromDualValued,
+      1,
+      "Amount released to user should match amount removed from dual valued"
+    );
     // Verify vesting session data
     assert(
       vestingSessionData.cancelledAt.toNumber() > 0,
