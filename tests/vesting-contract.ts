@@ -107,6 +107,7 @@ describe("vesting-contract", () => {
       [
         Buffer.from("mint"),
         Buffer.from(tokenName),
+        valuedTokenMint.toBuffer(),
         owner.toBuffer(),
         backend.publicKey.toBuffer(),
       ],
@@ -212,6 +213,7 @@ describe("vesting-contract", () => {
         backend: backend.publicKey,
         metadata: metadataAddress,
         mint: escrowTokenMint,
+        valuedTokenMint,
         payer: backend.publicKey,
       })
       .signers([backend])
@@ -252,6 +254,7 @@ describe("vesting-contract", () => {
         mint: escrowTokenMint,
         destination: backendEscrowTokenAccount,
         payer: backend.publicKey,
+        valuedTokenMint
       })
       .signers([backend])
       .rpc();

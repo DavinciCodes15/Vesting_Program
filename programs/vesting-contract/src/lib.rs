@@ -16,7 +16,7 @@ use crate::errors::*;
 use crate::helpers::{ calculate_amount_to_release, transfer_tokens_helper };
 
 // Declare the program ID
-declare_id!("bsYGzNF5E3ZeinVVBA7Ah81yEkcUmYtsKxPPAqJ11nF");
+declare_id!("6kMVsqEP5AdqtEJxxWkFUf2VsXDKe46u4tFLJJfmsLcn");
 
 #[program]
 pub mod vesting_contract {
@@ -32,6 +32,7 @@ pub mod vesting_contract {
         let seeds = &[
             "mint".as_bytes(),
             metadata.name.as_bytes(),
+            &ctx.accounts.valued_token_mint.key().to_bytes(),
             &ctx.accounts.owner.key().to_bytes(),
             &ctx.accounts.backend.key().to_bytes(),
             &[ctx.bumps.mint],
@@ -82,6 +83,7 @@ pub mod vesting_contract {
         let seeds = &[
             "mint".as_bytes(),
             metadata.name.as_bytes(),
+            &ctx.accounts.valued_token_mint.key().to_bytes(),
             &ctx.accounts.owner.key().to_bytes(),
             &ctx.accounts.backend.key().to_bytes(),
             &[ctx.bumps.mint],

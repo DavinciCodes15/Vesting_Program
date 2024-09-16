@@ -28,7 +28,13 @@ pub struct InitToken<'info> {
     pub metadata: UncheckedAccount<'info>,
     #[account(
         init,
-        seeds = [b"mint", params.name.as_bytes(), owner.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"mint",
+            params.name.as_bytes(),
+            valued_token_mint.key().as_ref(),
+            owner.key().as_ref(),
+            backend.key().as_ref(),
+        ],
         bump,
         payer = payer,
         mint::decimals = params.decimals,
@@ -37,6 +43,7 @@ pub struct InitToken<'info> {
     pub mint: Account<'info, Mint>,
     #[account(mut)]
     pub payer: Signer<'info>,
+    pub valued_token_mint: Account<'info, Mint>,
     pub rent: Sysvar<'info, Rent>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -54,7 +61,13 @@ pub struct MintTokens<'info> {
     pub backend: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"mint", params.name.as_bytes(), owner.key().as_ref(), backend.key().as_ref()],
+        seeds = [
+            b"mint",
+            params.name.as_bytes(),
+            valued_token_mint.key().as_ref(),
+            owner.key().as_ref(),
+            backend.key().as_ref(),
+        ],
         bump,
         mint::authority = backend,
     )]
@@ -68,6 +81,7 @@ pub struct MintTokens<'info> {
     pub destination: Account<'info, TokenAccount>,
     #[account(mut)]
     pub payer: Signer<'info>,
+    pub valued_token_mint: Account<'info, Mint>,
     pub rent: Sysvar<'info, Rent>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
