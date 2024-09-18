@@ -19,7 +19,7 @@ use crate::helpers::{
 };
 
 // Declare the program ID
-declare_id!("2MUpWJbdS62srzecvDFsU4B83crY7jFGEQ2a7JTFenTv");
+declare_id!("8N8xp5S2GJBpoCQ42WxepW9Xp1Y5HAGH59zWiCuBmD9a");
 
 #[program]
 pub mod vesting_contract {
@@ -50,8 +50,8 @@ pub mod vesting_contract {
                     token_program_id: ctx.accounts.token_program.to_account_info(),
                     mint: ctx.accounts.mint.to_account_info(),
                     metadata: ctx.accounts.mint.to_account_info(),
-                    mint_authority: ctx.accounts.payer.to_account_info(),
-                    update_authority: ctx.accounts.payer.to_account_info(),
+                    mint_authority: ctx.accounts.backend.to_account_info(),
+                    update_authority: ctx.accounts.backend.to_account_info(),
                 },
                 &signer
             ),

@@ -70,7 +70,7 @@ pub struct MintTokens<'info> {
         ],
         bump,
         mint::authority = backend,
-        mint::token_program = token_program,
+        mint::token_program = token_program       
     )]
     pub mint: InterfaceAccount<'info, Mint>,
     #[account(

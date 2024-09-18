@@ -233,9 +233,9 @@ describe("vesting-contract", () => {
         backend: backend.publicKey,
         mint: escrowTokenMint,
         valuedTokenMint,
-        payer: backend.publicKey,
+        payer: user.publicKey,
       })
-      .signers([backend])
+      .signers([backend, user])
       .rpc();
 
     await confirmTransaction(tx);
@@ -273,15 +273,15 @@ describe("vesting-contract", () => {
         backend: backend.publicKey,
         mint: escrowTokenMint,
         destination: backendEscrowTokenAccount,
-        payer: backend.publicKey,
+        payer: user.publicKey,
         valuedTokenMint,
       })
-      .signers([backend])
+      .signers([backend, user])
       .rpc();
 
     console.log("Tokens minted. Transaction signature:", tx);
   });
-
+  
   it("Initializes a new dual auth account", async () => {
     const tx = await program.methods
       .initializeDualAuthAccount()
