@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    metadata::Metadata as Metaplex,
-    token::{ Mint, Token, TokenAccount },
+    token_interface::{ Mint, Token2022, TokenAccount, TokenInterface },
 };
 
 /// Parameters for initializing a new token
@@ -23,9 +22,7 @@ pub struct InitToken<'info> {
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub owner: UncheckedAccount<'info>,
     pub backend: Signer<'info>,
-    /// CHECK: New Metaplex Account being created
-    #[account(mut)]
-    pub metadata: UncheckedAccount<'info>,
+
     #[account(
         init,
         seeds = [
@@ -38,16 +35,19 @@ pub struct InitToken<'info> {
         bump,
         payer = payer,
         mint::decimals = params.decimals,
-        mint::authority = backend
+        mint::token_program = token_program,
+        mint::authority = backend,
+        mint::freeze_authority = backend,
+        extensions::metadata_pointer::authority = backend,
+        extensions::metadata_pointer::metadata_address = mint
     )]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub valued_token_mint: Account<'info, Mint>,
-    pub rent: Sysvar<'info, Rent>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
-    pub token_metadata_program: Program<'info, Metaplex>,
+    pub token_program: Program<'info, Token2022>,
 }
 
 /// Accounts required for minting tokens
@@ -70,22 +70,24 @@ pub struct MintTokens<'info> {
         ],
         bump,
         mint::authority = backend,
+        mint::token_program = token_program,
     )]
-    pub mint: Account<'info, Mint>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(
         init_if_needed,
         payer = payer,
         associated_token::mint = mint,
-        associated_token::authority = backend
+        associated_token::authority = backend,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
     )]
-    pub destination: Account<'info, TokenAccount>,
+    pub destination: InterfaceAccount<'info, TokenAccount>,
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub valued_token_mint: Account<'info, Mint>,
-    pub rent: Sysvar<'info, Rent>,
-    pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Program<'info, Token2022>,
     pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
 /// Account structure for dual authorization
@@ -118,11 +120,22 @@ pub struct InitializeDualAuthAccount<'info> {
         bump
     )]
     pub dual_auth_account: Account<'info, DualAuthAccount>,
+    #[account(
+        init,
+        payer = user,
+        associated_token::mint = valued_token_mint,
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
+    )]
+    pub dual_valued_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut)]
     pub user: Signer<'info>,
     pub backend: Signer<'info>,
-    pub valued_token_mint: Account<'info, Mint>,
-    pub escrow_token_mint: Account<'info, Mint>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+    pub escrow_token_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
@@ -141,36 +154,55 @@ pub struct Exchange<'info> {
             valued_token_mint.key().as_ref(),
             escrow_token_mint.key().as_ref(),
         ],
+        has_one = user,
+        has_one = backend,
         bump
     )]
     pub dual_auth_account: Box<Account<'info, DualAuthAccount>>,
     #[account(
-        init_if_needed,
-        payer = user,
+        mut,
         associated_token::mint = valued_token_mint,
-        associated_token::authority = dual_auth_account
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = valued_token_program,
+        mint::token_program = valued_token_program
     )]
-    pub dual_valued_token_account: Box<Account<'info, TokenAccount>>,
+    pub dual_valued_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    pub valued_token_program: Interface<'info, TokenInterface>,
+
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = escrow_token_mint,
-        associated_token::authority = dual_auth_account
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
     )]
-    pub dual_escrow_token_account: Box<Account<'info, TokenAccount>>,
+    pub dual_escrow_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub user: Signer<'info>,
-    #[account(mut, associated_token::mint = valued_token_mint, associated_token::authority = user)]
-    pub user_valued_token_account: Box<Account<'info, TokenAccount>>,
-
+    #[account(mut, 
+        associated_token::mint = valued_token_mint,
+        associated_token::authority = user,
+        associated_token::token_program = valued_token_program,
+        mint::token_program = valued_token_program
+    )]
+    pub user_valued_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut)]
     pub backend: Signer<'info>,
-    #[account(mut, associated_token::mint = escrow_token_mint, associated_token::authority = backend)]
-    pub backend_escrow_token_account: Box<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        associated_token::mint = escrow_token_mint, 
+        associated_token::authority = backend,       
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
+    )]
+    pub backend_escrow_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    pub valued_token_mint: Box<Account<'info, Mint>>,
-    pub escrow_token_mint: Box<Account<'info, Mint>>,
-    pub token_program: Program<'info, Token>,
+    pub valued_token_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub escrow_token_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub token_program: Program<'info, Token2022>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
@@ -200,14 +232,15 @@ pub struct TransferTokens<'info> {
         mut,        
         constraint = from.owner == dual_auth_account.key() || from.owner == dual_auth_account.user.key() || from.owner == dual_auth_account.backend.key()
     )]
-    pub from: Account<'info, TokenAccount>,
+    pub from: InterfaceAccount<'info, TokenAccount>,
+    pub mint: InterfaceAccount<'info, Mint>,
     #[account(mut,
         constraint = to.owner == dual_auth_account.key() || to.owner == dual_auth_account.user.key() || to.owner == dual_auth_account.backend.key()
     )]
-    pub to: Account<'info, TokenAccount>,
-    pub valued_token_mint: Account<'info, Mint>,
-    pub escrow_token_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
+    pub to: InterfaceAccount<'info, TokenAccount>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+    pub escrow_token_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 /// Account structure for tracking all vesting sessions
@@ -263,8 +296,8 @@ pub struct CreateVestingSession<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
     pub backend: Signer<'info>,
-    pub valued_token_mint: Account<'info, Mint>,
-    pub escrow_token_mint: Account<'info, Mint>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+    pub escrow_token_mint: InterfaceAccount<'info, Mint>,
     #[account(
         seeds = [
             b"dual_auth",
@@ -282,16 +315,20 @@ pub struct CreateVestingSession<'info> {
     #[account(
         mut,
         associated_token::mint = escrow_token_mint,
-        associated_token::authority = backend
+        associated_token::authority = backend,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
     )]
-    pub backend_escrow_token_account: Account<'info, TokenAccount>,
+    pub backend_escrow_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(
         mut,
         associated_token::mint = escrow_token_mint,
-        associated_token::authority = dual_auth_account
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
     )]
-    pub dual_escrow_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
+    pub dual_escrow_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
 
@@ -320,18 +357,25 @@ pub struct SessionWithdraw<'info> {
     #[account(
         mut,
         associated_token::mint = valued_token_mint,
-        associated_token::authority = dual_auth_account
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
     )]
-    pub dual_valued_token_account: Account<'info, TokenAccount>,
+    pub dual_valued_token_account: InterfaceAccount<'info, TokenAccount>,
 
     pub user: Signer<'info>,
-    #[account(mut, associated_token::mint = valued_token_mint, associated_token::authority = user)]
-    pub user_valued_token_account: Account<'info, TokenAccount>,
+    #[account(mut, 
+        associated_token::mint = valued_token_mint, 
+        associated_token::authority = user,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
+    )]
+    pub user_valued_token_account: InterfaceAccount<'info, TokenAccount>,
 
     pub backend: Signer<'info>,
-    pub valued_token_mint: Account<'info, Mint>,
-    pub escrow_token_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+    pub escrow_token_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -360,26 +404,44 @@ pub struct SessionCancelation<'info> {
     #[account(
         mut,
         associated_token::mint = valued_token_mint,
-        associated_token::authority = dual_auth_account
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = valued_token_program,
+        mint::token_program = valued_token_program
     )]
-    pub dual_valued_token_account: Account<'info, TokenAccount>,
+    pub dual_valued_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    pub valued_token_program: Interface<'info, TokenInterface>,
+
     #[account(
         mut,
         associated_token::mint = escrow_token_mint,
-        associated_token::authority = dual_auth_account
+        associated_token::authority = dual_auth_account,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
     )]
-    pub dual_escrow_token_account: Account<'info, TokenAccount>,
+    pub dual_escrow_token_account: InterfaceAccount<'info, TokenAccount>,
 
     pub user: Signer<'info>,
-    #[account(mut, associated_token::mint = valued_token_mint, associated_token::authority = user)]
-    pub user_valued_token_account: Account<'info, TokenAccount>,
+    #[account(mut, 
+        associated_token::mint = valued_token_mint, 
+        associated_token::authority = user,
+        associated_token::token_program = valued_token_program,
+        mint::token_program = valued_token_program
+    )]
+    pub user_valued_token_account: InterfaceAccount<'info, TokenAccount>,
 
     pub backend: Signer<'info>,
-    #[account(mut)]
-    pub backend_escrow_token_account: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        associated_token::mint = escrow_token_mint,
+        associated_token::authority = backend,
+        associated_token::token_program = token_program,
+        mint::token_program = token_program
+    )]
+    pub backend_escrow_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    pub valued_token_mint: Account<'info, Mint>,
-    pub escrow_token_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
+    pub valued_token_mint: InterfaceAccount<'info, Mint>,
+    pub escrow_token_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }

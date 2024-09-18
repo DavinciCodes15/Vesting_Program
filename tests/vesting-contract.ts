@@ -1,13 +1,14 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { VestingContract } from "../target/types/vesting_contract";
-import { PublicKey, SendTransactionError } from "@solana/web3.js";
+import { AccountInfo, PublicKey, SendTransactionError } from "@solana/web3.js";
 import {
   createMint,
   createAssociatedTokenAccount,
   mintTo,
   getAssociatedTokenAddressSync,
   getAccount,
+  TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import { assert } from "chai";
 
@@ -32,6 +33,7 @@ describe("vesting-contract", () => {
   const decimals = 9;
 
   let valuedTokenMint: PublicKey;
+  let valuedTokenMintInfo: AccountInfo<Buffer>;
   let escrowTokenMint: PublicKey;
   let userValuedTokenAccount: PublicKey;
   let backendEscrowTokenAccount: PublicKey;
@@ -60,8 +62,16 @@ describe("vesting-contract", () => {
     return balance;
   }
 
-  async function getTokenBalance(tokenAccount: PublicKey): Promise<number> {
-    const account = await getAccount(provider.connection, tokenAccount);
+  async function getTokenBalance(
+    tokenAccount: PublicKey,
+    programId?: PublicKey
+  ): Promise<number> {
+    const account = await getAccount(
+      provider.connection,
+      tokenAccount,
+      undefined,
+      programId ?? TOKEN_2022_PROGRAM_ID
+    );
     return Number(account.amount);
   }
 
@@ -96,6 +106,12 @@ describe("vesting-contract", () => {
         9,
         undefined,
         { commitment: "confirmed" }
+        //toggle this on/off to test different token programs
+        // TOKEN_2022_PROGRAM_ID
+      );
+
+      valuedTokenMintInfo = await provider.connection.getAccountInfo(
+        valuedTokenMint
       );
       console.log("Valued token mint created:", valuedTokenMint.toBase58());
     } catch (error) {
@@ -122,7 +138,8 @@ describe("vesting-contract", () => {
         user,
         valuedTokenMint,
         user.publicKey,
-        { commitment: "confirmed" }
+        { commitment: "confirmed" },
+        valuedTokenMintInfo.owner
       );
       console.log(
         "User valued token account created:",
@@ -144,7 +161,8 @@ describe("vesting-contract", () => {
         user,
         1000000000000,
         [],
-        { commitment: "confirmed" }
+        { commitment: "confirmed" },
+        valuedTokenMintInfo.owner
       );
       console.log("Tokens minted to user valued token account");
     } catch (error) {
@@ -168,13 +186,15 @@ describe("vesting-contract", () => {
     dualValuedTokenAccount = getAssociatedTokenAddressSync(
       valuedTokenMint,
       dualAuthAccount,
-      true
+      true,
+      valuedTokenMintInfo.owner
     );
 
     dualEscrowTokenAccount = getAssociatedTokenAddressSync(
       escrowTokenMint,
       dualAuthAccount,
-      true
+      true,
+      TOKEN_2022_PROGRAM_ID
     );
 
     [vestingSessionsAccount] = PublicKey.findProgramAddressSync(
@@ -211,7 +231,6 @@ describe("vesting-contract", () => {
       .accounts({
         owner,
         backend: backend.publicKey,
-        metadata: metadataAddress,
         mint: escrowTokenMint,
         valuedTokenMint,
         payer: backend.publicKey,
@@ -231,7 +250,8 @@ describe("vesting-contract", () => {
       backend,
       escrowTokenMint,
       backend.publicKey,
-      { commitment: "confirmed" }
+      { commitment: "confirmed" },
+      TOKEN_2022_PROGRAM_ID
     );
     console.log(
       "Backend escrow token account created:",
@@ -268,10 +288,12 @@ describe("vesting-contract", () => {
       .accounts({
         owner,
         dualAuthAccount,
+        dualValuedTokenAccount,
         user: user.publicKey,
         backend: backend.publicKey,
         valuedTokenMint,
         escrowTokenMint,
+        tokenProgram: valuedTokenMintInfo.owner,
       })
       .signers([backend, user])
       .rpc();
@@ -287,30 +309,25 @@ describe("vesting-contract", () => {
   });
 
   it("Exchanges tokens with 1:1 ratio and initializes accounts", async () => {
-    const exchangeAmount = new anchor.BN(500000000000); // 500 tokens
-
-    const userInitialBalance = await getTokenBalance(userValuedTokenAccount);
-    const backendInitialBalance = await getTokenBalance(
-      backendEscrowTokenAccount
-    );
-
-    // Check that accounts don't exist before exchange
-    assert.isFalse(
-      await accountExists(dualValuedTokenAccount),
-      "Dual valued token account should not exist before exchange"
-    );
-    assert.isFalse(
-      await accountExists(dualEscrowTokenAccount),
-      "Dual escrow token account should not exist before exchange"
-    );
-
     try {
+      const exchangeAmount = new anchor.BN(500000000000); // 500 tokens
+
+      const userInitialBalance = await getTokenBalance(
+        userValuedTokenAccount,
+        valuedTokenMintInfo.owner
+      );
+
+      const backendInitialBalance = await getTokenBalance(
+        backendEscrowTokenAccount
+      );
+
       const tx = await program.methods
         .exchange(exchangeAmount)
         .accounts({
           owner,
           dualAuthAccount,
           dualValuedTokenAccount,
+          valuedTokenProgram: valuedTokenMintInfo.owner,
           dualEscrowTokenAccount,
           user: user.publicKey,
           userValuedTokenAccount,
@@ -340,12 +357,16 @@ describe("vesting-contract", () => {
       );
 
       // Assert balances after exchange
-      const userFinalBalance = await getTokenBalance(userValuedTokenAccount);
+      const userFinalBalance = await getTokenBalance(
+        userValuedTokenAccount,
+        valuedTokenMintInfo.owner
+      );
       const backendFinalBalance = await getTokenBalance(
         backendEscrowTokenAccount
       );
       const dualValuedFinalBalance = await getTokenBalance(
-        dualValuedTokenAccount
+        dualValuedTokenAccount,
+        valuedTokenMintInfo.owner
       );
       const dualEscrowFinalBalance = await getTokenBalance(
         dualEscrowTokenAccount
@@ -397,11 +418,17 @@ describe("vesting-contract", () => {
     }
   });
 
-  it("Transfers tokens correctly", async () => {
+  it("Transfers tokens correctly using the old Token", async () => {
     const transferAmount = new anchor.BN(100000000); // 100 tokens
 
-    const initialFromBalance = await getTokenBalance(dualValuedTokenAccount);
-    const initialToBalance = await getTokenBalance(userValuedTokenAccount);
+    const initialFromBalance = await getTokenBalance(
+      dualValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
+    const initialToBalance = await getTokenBalance(
+      userValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
 
     const tx = await program.methods
       .transferTokens(transferAmount)
@@ -411,9 +438,11 @@ describe("vesting-contract", () => {
         user: user.publicKey,
         backend: backend.publicKey,
         from: dualValuedTokenAccount,
+        mint: valuedTokenMint,
         to: userValuedTokenAccount,
         valuedTokenMint,
         escrowTokenMint,
+        tokenProgram: valuedTokenMintInfo.owner,
       })
       .signers([backend, user])
       .rpc();
@@ -421,8 +450,55 @@ describe("vesting-contract", () => {
     await confirmTransaction(tx);
     console.log("Tokens transferred. Transaction signature:", tx);
 
-    const finalFromBalance = await getTokenBalance(dualValuedTokenAccount);
-    const finalToBalance = await getTokenBalance(userValuedTokenAccount);
+    const finalFromBalance = await getTokenBalance(
+      dualValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
+    const finalToBalance = await getTokenBalance(
+      userValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
+
+    assert.equal(
+      finalFromBalance,
+      initialFromBalance - transferAmount.toNumber(),
+      "From balance should decrease by transfer amount"
+    );
+    assert.equal(
+      finalToBalance,
+      initialToBalance + transferAmount.toNumber(),
+      "To balance should increase by transfer amount"
+    );
+  });
+
+  it("Transfers tokens correctly using Token2022", async () => {
+    const transferAmount = new anchor.BN(100000000); // 100 tokens
+
+    const initialFromBalance = await getTokenBalance(dualEscrowTokenAccount);
+    const initialToBalance = await getTokenBalance(backendEscrowTokenAccount);
+
+    const tx = await program.methods
+      .transferTokens(transferAmount)
+      .accounts({
+        owner,
+        dualAuthAccount: dualAuthAccount,
+        user: user.publicKey,
+        backend: backend.publicKey,
+        from: dualEscrowTokenAccount,
+        mint: escrowTokenMint,
+        to: backendEscrowTokenAccount,
+        valuedTokenMint,
+        escrowTokenMint,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .signers([backend, user])
+      .rpc();
+
+    await confirmTransaction(tx);
+    console.log("Tokens transferred. Transaction signature:", tx);
+
+    const finalFromBalance = await getTokenBalance(dualEscrowTokenAccount);
+    const finalToBalance = await getTokenBalance(backendEscrowTokenAccount);
 
     assert.equal(
       finalFromBalance,
@@ -527,9 +603,13 @@ describe("vesting-contract", () => {
     // Wait for a minute to pass for vesting
     await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
 
-    const initialUserBalance = await getTokenBalance(userValuedTokenAccount);
+    const initialUserBalance = await getTokenBalance(
+      userValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
     const initialDualValuedBalance = await getTokenBalance(
-      dualValuedTokenAccount
+      dualValuedTokenAccount,
+      valuedTokenMintInfo.owner
     );
 
     const tx = await program.methods
@@ -544,6 +624,7 @@ describe("vesting-contract", () => {
         backend: backend.publicKey,
         valuedTokenMint,
         escrowTokenMint,
+        tokenProgram: valuedTokenMintInfo.owner,
       })
       .signers([backend, user])
       .rpc();
@@ -551,9 +632,13 @@ describe("vesting-contract", () => {
     await confirmTransaction(tx);
     console.log("Withdrawn from vesting session. Transaction signature:", tx);
 
-    const finalUserBalance = await getTokenBalance(userValuedTokenAccount);
+    const finalUserBalance = await getTokenBalance(
+      userValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
     const finalDualValuedBalance = await getTokenBalance(
-      dualValuedTokenAccount
+      dualValuedTokenAccount,
+      valuedTokenMintInfo.owner
     );
 
     assert(
@@ -585,9 +670,13 @@ describe("vesting-contract", () => {
     // Wait for some time to pass for partial vesting
     await new Promise((resolve) => setTimeout(resolve, 60 * 1000)); // Wait for 1 minute
 
-    const initialUserBalance = await getTokenBalance(userValuedTokenAccount);
+    const initialUserBalance = await getTokenBalance(
+      userValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
     const initialDualValuedBalance = await getTokenBalance(
-      dualValuedTokenAccount
+      dualValuedTokenAccount,
+      valuedTokenMintInfo.owner
     );
     const initialDualEscrowBalance = await getTokenBalance(
       dualEscrowTokenAccount
@@ -603,6 +692,7 @@ describe("vesting-contract", () => {
         vestingSessionAccount,
         dualAuthAccount,
         dualValuedTokenAccount,
+        valuedTokenProgram: valuedTokenMintInfo.owner,
         dualEscrowTokenAccount,
         user: user.publicKey,
         userValuedTokenAccount,
@@ -617,9 +707,13 @@ describe("vesting-contract", () => {
     await confirmTransaction(tx);
     console.log("Vesting session cancelled. Transaction signature:", tx);
 
-    const finalUserBalance = await getTokenBalance(userValuedTokenAccount);
+    const finalUserBalance = await getTokenBalance(
+      userValuedTokenAccount,
+      valuedTokenMintInfo.owner
+    );
     const finalDualValuedBalance = await getTokenBalance(
-      dualValuedTokenAccount
+      dualValuedTokenAccount,
+      valuedTokenMintInfo.owner
     );
     const finalDualEscrowBalance = await getTokenBalance(
       dualEscrowTokenAccount
@@ -699,6 +793,8 @@ describe("vesting-contract", () => {
           userValuedTokenAccount,
           backend: backend.publicKey,
           valuedTokenMint,
+          escrowTokenMint,
+          tokenProgram: valuedTokenMintInfo.owner,
         })
         .signers([backend, user])
         .rpc();
@@ -758,6 +854,8 @@ describe("vesting-contract", () => {
             userValuedTokenAccount,
             backend: backend.publicKey,
             valuedTokenMint,
+            escrowTokenMint,
+            tokenProgram: valuedTokenMintInfo.owner,
           })
           .signers([backend, user])
           .rpc()
@@ -789,6 +887,8 @@ describe("vesting-contract", () => {
           userValuedTokenAccount,
           backend: backend.publicKey,
           valuedTokenMint,
+          escrowTokenMint,
+          tokenProgram: valuedTokenMintInfo.owner,
         })
         .signers([maliciousUser, backend])
         .rpc();
@@ -810,6 +910,7 @@ describe("vesting-contract", () => {
           vestingSessionAccount,
           dualAuthAccount,
           dualValuedTokenAccount,
+          valuedTokenProgram: valuedTokenMintInfo.owner,
           dualEscrowTokenAccount,
           user: maliciousUser.publicKey,
           userValuedTokenAccount,
@@ -840,7 +941,11 @@ describe("vesting-contract", () => {
           user: maliciousUser.publicKey,
           backend: backend.publicKey,
           from: dualValuedTokenAccount,
+          mint: valuedTokenMint,
           to: userValuedTokenAccount,
+          valuedTokenMint,
+          escrowTokenMint,
+          tokenProgram: valuedTokenMintInfo.owner,
         })
         .signers([maliciousUser, backend])
         .rpc();

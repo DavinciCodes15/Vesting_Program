@@ -3,20 +3,23 @@ pub mod vesting_accounts;
 pub mod errors;
 
 use anchor_lang::prelude::*;
-use anchor_spl::{
-    metadata::{
-        create_metadata_accounts_v3,
-        mpl_token_metadata::types::DataV2,
-        CreateMetadataAccountsV3,
-    },
-    token::{ mint_to, MintTo },
+use anchor_spl::token_interface::{
+    MintTo,
+    mint_to,
+    token_metadata_initialize,
+    TokenMetadataInitialize,
 };
+
 use crate::vesting_accounts::*;
 use crate::errors::*;
-use crate::helpers::{ calculate_amount_to_release, transfer_tokens_helper };
+use crate::helpers::{
+    calculate_amount_to_release,
+    transfer_tokens_helper,
+    update_account_lamports_to_minimum_balance,
+};
 
 // Declare the program ID
-declare_id!("6kMVsqEP5AdqtEJxxWkFUf2VsXDKe46u4tFLJJfmsLcn");
+declare_id!("2MUpWJbdS62srzecvDFsU4B83crY7jFGEQ2a7JTFenTv");
 
 #[program]
 pub mod vesting_contract {
@@ -39,34 +42,30 @@ pub mod vesting_contract {
         ];
         let signer = [&seeds[..]];
 
-        // Prepare token metadata
-        let token_data: DataV2 = DataV2 {
-            name: metadata.name.clone(),
-            symbol: metadata.symbol,
-            uri: metadata.uri,
-            seller_fee_basis_points: 0,
-            creators: None,
-            collection: None,
-            uses: None,
-        };
+        // Initialize token metadata
+        token_metadata_initialize(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TokenMetadataInitialize {
+                    token_program_id: ctx.accounts.token_program.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                    metadata: ctx.accounts.mint.to_account_info(),
+                    mint_authority: ctx.accounts.payer.to_account_info(),
+                    update_authority: ctx.accounts.payer.to_account_info(),
+                },
+                &signer
+            ),
+            metadata.name.clone(),
+            metadata.symbol,
+            metadata.uri
+        )?;
 
-        // Create metadata accounts using Metaplex
-        let metadata_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_metadata_program.to_account_info(),
-            CreateMetadataAccountsV3 {
-                payer: ctx.accounts.payer.to_account_info(),
-                update_authority: ctx.accounts.mint.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                metadata: ctx.accounts.metadata.to_account_info(),
-                mint_authority: ctx.accounts.backend.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                rent: ctx.accounts.rent.to_account_info(),
-            },
-            &signer
-        );
-
-        // Call Metaplex instruction to create metadata accounts
-        create_metadata_accounts_v3(metadata_ctx, token_data, false, true, None)?;
+        // Update the mint account to the minimum balance
+        update_account_lamports_to_minimum_balance(
+            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.system_program.to_account_info()
+        )?;
 
         msg!("Token mint created successfully.");
 
@@ -127,25 +126,27 @@ pub mod vesting_contract {
 
         // Transfer tokens from user to dual auth valued token account
         transfer_tokens_helper(
-            &ctx.accounts.owner,
             &ctx.accounts.user_valued_token_account,
+            &ctx.accounts.valued_token_mint,
             &ctx.accounts.dual_valued_token_account,
-            ctx.accounts.user.to_account_info(),
+            &ctx.accounts.user.to_account_info(),
+            &ctx.accounts.owner,
             &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
             &ctx.accounts.escrow_token_mint,
-            &ctx.accounts.token_program,
+            &ctx.accounts.valued_token_program,
             amount,
             ctx.bumps.dual_auth_account
         )?;
 
         // Transfer equivalent tokens from backend to dual auth escrow token account
         transfer_tokens_helper(
-            &ctx.accounts.owner,
             &ctx.accounts.backend_escrow_token_account,
+            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.dual_escrow_token_account,
-            ctx.accounts.backend.to_account_info(),
+            &&ctx.accounts.backend.to_account_info(),
+            &ctx.accounts.owner,
             &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
@@ -162,10 +163,11 @@ pub mod vesting_contract {
     pub fn transfer_tokens(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
         // Use the helper function to transfer tokens
         transfer_tokens_helper(
-            &ctx.accounts.owner,
             &ctx.accounts.from,
+            &ctx.accounts.mint,
             &ctx.accounts.to,
-            ctx.accounts.dual_auth_account.to_account_info(),
+            &ctx.accounts.dual_auth_account.to_account_info(),
+            &ctx.accounts.owner,
             &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
@@ -187,7 +189,7 @@ pub mod vesting_contract {
         if amount < MINIMUM_AMOUNT {
             return Err(VestingErrorCode::MinimumAmountNotMet.into());
         }
-        
+
         // Initialize vesting session with details
         vesting_session.id = vesting_account.last_session_id;
         vesting_session.vesting_sessions_account = vesting_account.key();
@@ -202,10 +204,11 @@ pub mod vesting_contract {
 
         // Transfer tokens from dual escrow to backend escrow
         transfer_tokens_helper(
-            &ctx.accounts.owner,
             &ctx.accounts.dual_escrow_token_account,
+            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.backend_escrow_token_account,
-            ctx.accounts.dual_auth_account.to_account_info(),
+            &ctx.accounts.dual_auth_account.to_account_info(),
+            &ctx.accounts.owner,
             &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
@@ -228,10 +231,11 @@ pub mod vesting_contract {
         if amount_to_release > 0 {
             // Transfer releasable tokens
             transfer_tokens_helper(
-                &ctx.accounts.owner,
                 &ctx.accounts.dual_valued_token_account,
+                &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                ctx.accounts.dual_auth_account.to_account_info(),
+                &ctx.accounts.dual_auth_account.to_account_info(),
+                &ctx.accounts.owner,
                 &ctx.accounts.user,
                 &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,
@@ -270,15 +274,16 @@ pub mod vesting_contract {
         if valued_amount_to_release > 0 {
             // Transfer releasable tokens to user
             transfer_tokens_helper(
-                &ctx.accounts.owner,
                 &ctx.accounts.dual_valued_token_account,
+                &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                ctx.accounts.dual_auth_account.to_account_info(),
+                &ctx.accounts.dual_auth_account.to_account_info(),
+                &ctx.accounts.owner,
                 &ctx.accounts.user,
                 &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.escrow_token_mint,
-                &ctx.accounts.token_program,
+                &ctx.accounts.valued_token_program,
                 valued_amount_to_release,
                 ctx.bumps.dual_auth_account
             )?;
@@ -294,10 +299,11 @@ pub mod vesting_contract {
         if escrow_amount_to_get_back > 0 {
             // Return remaining tokens to escrow
             transfer_tokens_helper(
-                &ctx.accounts.owner,
                 &ctx.accounts.backend_escrow_token_account,
+                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.dual_escrow_token_account,
-                ctx.accounts.backend.to_account_info(),
+                &ctx.accounts.backend.to_account_info(),
+                &ctx.accounts.owner,
                 &ctx.accounts.user,
                 &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,

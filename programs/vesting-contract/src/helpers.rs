@@ -1,20 +1,37 @@
 /// Helper functions for the contract
 
-use anchor_lang::prelude::*;
-use anchor_spl::token::{ self, Mint, Transfer };
+use anchor_lang::{ prelude::*, solana_program::{ program::invoke, system_instruction::transfer } };
+use anchor_spl::token_interface::{ transfer_checked, Mint, TokenAccount, TransferChecked };
 use crate::{ VestingErrorCode, VestingSession };
+
+///  update the account's lamports to the minimum balance required by the rent sysvar
+pub fn update_account_lamports_to_minimum_balance<'info>(
+    account: AccountInfo<'info>,
+    payer: AccountInfo<'info>,
+    system_program: AccountInfo<'info>
+) -> Result<()> {
+    let extra_lamports = Rent::get()?.minimum_balance(account.data_len()) - account.get_lamports();
+    if extra_lamports > 0 {
+        invoke(
+            &transfer(payer.key, account.key, extra_lamports),
+            &[payer, account, system_program]
+        )?;
+    }
+    Ok(())
+}
 
 /// Helper function to transfer tokens
 pub fn transfer_tokens_helper<'info>(
-    owner: &UncheckedAccount<'info>,
-    from: &Account<'info, token::TokenAccount>,
-    to: &Account<'info, token::TokenAccount>,
-    authority: AccountInfo<'info>,
+    from: &InterfaceAccount<'info, TokenAccount>,
+    mint: &InterfaceAccount<'info, Mint>,
+    to: &InterfaceAccount<'info, TokenAccount>,
+    authority: &AccountInfo<'info>,
+    owner: &AccountInfo<'info>,
     user: &Signer<'info>,
     backend: &Signer<'info>,
-    valued_token_mint: &Account<'info, Mint>,
-    escrow_token_mint: &Account<'info, Mint>,
-    token_program: &Program<'info, token::Token>,
+    valued_token_mint: &InterfaceAccount<'info, Mint>,
+    escrow_token_mint: &InterfaceAccount<'info, Mint>,
+    token_program: &AccountInfo<'info>,
     amount: u64,
     bump: u8
 ) -> Result<()> {
@@ -33,8 +50,9 @@ pub fn transfer_tokens_helper<'info>(
     let signer = &[&seeds[..]];
 
     // Set up the accounts for the transfer
-    let cpi_accounts = Transfer {
+    let cpi_accounts = TransferChecked {
         from: from.to_account_info(),
+        mint: mint.to_account_info(),
         to: to.to_account_info(),
         authority: authority.to_account_info(),
     };
@@ -42,7 +60,7 @@ pub fn transfer_tokens_helper<'info>(
     let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
 
     // Execute the transfer
-    token::transfer(cpi_ctx, amount)?;
+    transfer_checked(cpi_ctx, amount, mint.decimals)?;
 
     Ok(())
 }
