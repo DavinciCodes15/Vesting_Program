@@ -1,108 +1,94 @@
 # Vesting Contract Documentation
 
-## Table of Contents
+## Overview
 
-1. [Introduction](#introduction)
-2. [Contract Overview](#contract-overview)
-3. [Key Components](#key-components)
-4. [Security Features](#security-features)
-5. [Contract Functions](#contract-functions)
-6. [Account Structures](#account-structures)
-7. [Testing](#testing)
+This Solana program implements a token vesting contract with dual authorization features. It allows for the creation, management, and execution of token vesting schedules, as well as token minting and transfers. The contract is designed to work with the Solana blockchain and utilizes the Anchor framework.
 
-## 1. Introduction
+## Key Components
 
-This document provides comprehensive documentation for the Vesting Contract, a Solana-based smart contract implemented using the Anchor framework. The contract facilitates a token vesting system with dual authorization, allowing for secure and controlled token distribution over time.
+### Accounts
 
-## 2. Contract Overview
+1. **DualAuthAccount**: Manages dual authorization between a user and a backend.
+2. **VestingSessionsAccount**: Tracks all vesting sessions.
+3. **VestingSession**: Represents an individual vesting session.
 
-The Vesting Contract implements a token vesting mechanism with the following key features:
+### Instructions
 
-- Token initialization and minting
-- Dual authorization for enhanced security
-- Token exchange between user and dual auth accounts
-- Creation and management of vesting sessions
-- Controlled token withdrawal from vesting sessions
-- Ability to cancel vesting sessions
+1. `init_token`: Initializes a new token with metadata.
+2. `mint_tokens`: Mints new tokens to a specified account.
+3. `initialize_dual_auth_account`: Creates a new dual authorization account.
+4. `exchange`: Exchanges tokens between user and dual auth accounts.
+5. `transfer_tokens`: Transfers tokens between accounts under dual authorization.
+6. `create_vesting_session`: Creates a new vesting session.
+7. `session_withdraw`: Withdraws vested tokens from a session.
+8. `session_cancel`: Cancels an ongoing vesting session.
 
-## 3. Key Components
+## Detailed Instruction Documentation
 
-### 3.1 Dual Authorization
-
-The contract uses a dual authorization system requiring signatures from both the user and a backend authority for critical operations. This enhances security and prevents unauthorized actions.
-
-### 3.2 Vesting Sessions
-
-Vesting sessions allow for controlled release of tokens over time. Each session has its own parameters including start date, total amount, and withdrawal history.
-
-### 3.3 Token Management
-
-The contract handles two types of tokens:
-- Valued Tokens: The primary tokens being vested
-- Escrow Tokens: Tokens held in escrow as part of the vesting process
-
-## 4. Security Features
-
-- Program Derived Addresses (PDAs) for secure account derivation
-- Constraint checks to validate account relationships and permissions
-- Custom error codes for precise error handling
-- Time-based vesting logic to ensure proper token release schedules
-
-## 5. Contract Functions
-
-### 5.1 `init_token`
+### 1. init_token
 
 Initializes a new token with metadata.
 
-### 5.2 `mint_tokens`
+**Parameters:**
+- `metadata: InitTokenParams`: Contains token metadata (name, symbol, URI, decimals).
+
+### 2. mint_tokens
 
 Mints new tokens to a specified account.
 
-### 5.3 `exchange`
+**Parameters:**
+- `metadata: InitTokenParams`: Token metadata.
+- `quantity: u64`: Amount of tokens to mint.
+
+### 3. initialize_dual_auth_account
+
+Initializes a new dual authorization account.
+
+### 4. exchange
 
 Exchanges tokens between user and dual auth accounts.
 
-### 5.4 `transfer_tokens`
+**Parameters:**
+- `amount: u64`: Amount of tokens to exchange.
+
+### 5. transfer_tokens
 
 Transfers tokens between accounts under dual authorization.
 
-### 5.5 `create_vesting_session`
+**Parameters:**
+- `amount: u64`: Amount of tokens to transfer.
 
-Creates a new vesting session with specified parameters.
+### 6. create_vesting_session
 
-### 5.6 `session_withdraw`
+Creates a new vesting session.
 
-Withdraws vested tokens from a session based on the current time and vesting schedule.
+**Parameters:**
+- `amount: u64`: Amount of tokens to vest.
 
-### 5.7 `session_cancel`
+### 7. session_withdraw
 
-Cancels an ongoing vesting session and handles the distribution of vested and unvested tokens.
+Withdraws vested tokens from a session.
 
-## 6. Account Structures
+### 8. session_cancel
 
-### 6.1 `DualAuthAccount`
+Cancels an ongoing vesting session.
 
-Stores information about the dual authorization setup, including user and backend public keys.
+## Error Handling
 
-### 6.2 `VestingSessionsAccount`
+The contract defines custom error codes in the `VestingErrorCode` enum:
 
-Tracks all vesting sessions, maintaining a counter for session IDs.
+- `InsufficientFunds`: When there are not enough funds for an operation.
+- `InsufficientWithdrawalAmount`: When the amount to withdraw is less than the vested amount.
+- `MinimumAmountNotMet`: When the specified amount is less than the minimum required.
+- `ArithmeticOverflow`: When an arithmetic operation results in an overflow.
+- `DivisionByZero`: When a division by zero is attempted.
 
-### 6.3 `VestingSession`
+## Security Considerations
 
-Represents an individual vesting session, storing details such as amount, start date, and withdrawal history.
-
-## 7. Testing
-
-The contract includes a comprehensive test suite covering various scenarios:
-
-- Token exchange and account initialization
-- Token transfers
-- Vesting session creation, withdrawal, and cancellation
-- Security tests for incorrect authority attempts
-
-
+1. The contract uses PDAs (Program Derived Addresses) for secure key derivation.
+2. Dual authorization is implemented to enhance security for critical operations.
+3. Checked math operations are used to prevent overflow/underflow vulnerabilities.
 
 ## Conclusion
 
-This Vesting Contract provides a secure and flexible system for token vesting on the Solana blockchain. By leveraging dual authorization and time-based vesting logic, it offers a robust solution for controlled token distribution.
+This vesting contract provides a robust foundation for managing token vesting on the Solana blockchain. It offers flexibility through its dual authorization system and provides essential functionality for creating, managing, and executing vesting schedules. As with any financial smart contract, thorough testing and auditing are recommended before deployment to a production environment.

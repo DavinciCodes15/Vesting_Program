@@ -19,7 +19,7 @@ use crate::helpers::{
 };
 
 // Declare the program ID
-declare_id!("8N8xp5S2GJBpoCQ42WxepW9Xp1Y5HAGH59zWiCuBmD9a");
+declare_id!("25jVRBjkmB6GEJxzmx7od9uymirTF6afAzr3Hp7qK7cD");
 
 #[program]
 pub mod vesting_contract {
