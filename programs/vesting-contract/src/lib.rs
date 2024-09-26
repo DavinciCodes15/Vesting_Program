@@ -13,24 +13,28 @@ use anchor_spl::token_interface::{
 use crate::vesting_accounts::*;
 use crate::errors::*;
 use crate::helpers::{
-    calculate_amount_to_release,
+    // calculate_amount_to_release,
     transfer_tokens_helper,
     update_account_lamports_to_minimum_balance,
 };
 
 // Declare the program ID
-declare_id!("25jVRBjkmB6GEJxzmx7od9uymirTF6afAzr3Hp7qK7cD");
+declare_id!("3qUf3hWYhvjhbwMfVjushfDG5nWmg8VCAtG5cAQrDMdr");
 
 #[program]
 pub mod vesting_contract {
+    use helpers::calculate_amount_to_release;
+
     use super::*;
 
     // Constant representing six months in minutes
     // const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60; // 180 days * 24 hours * 60 minutes
-    const MINIMUM_AMOUNT: u64 = 1000000000;
 
     /// Initializes a new token with metadata
-    pub fn init_token(ctx: Context<InitToken>, metadata: InitTokenParams) -> Result<()> {
+    pub fn init_escrow_token(
+        ctx: Context<InitEscrowToken>,
+        metadata: InitEscrowTokenParams
+    ) -> Result<()> {
         // Create seeds for PDA (Program Derived Address)
         let seeds = &[
             "mint".as_bytes(),
@@ -38,7 +42,7 @@ pub mod vesting_contract {
             &ctx.accounts.valued_token_mint.key().to_bytes(),
             &ctx.accounts.owner.key().to_bytes(),
             &ctx.accounts.backend.key().to_bytes(),
-            &[ctx.bumps.mint],
+            &[ctx.bumps.escrow_token_mint],
         ];
         let signer = [&seeds[..]];
 
@@ -48,8 +52,8 @@ pub mod vesting_contract {
                 ctx.accounts.token_program.to_account_info(),
                 TokenMetadataInitialize {
                     token_program_id: ctx.accounts.token_program.to_account_info(),
-                    mint: ctx.accounts.mint.to_account_info(),
-                    metadata: ctx.accounts.mint.to_account_info(),
+                    mint: ctx.accounts.escrow_token_mint.to_account_info(),
+                    metadata: ctx.accounts.escrow_token_mint.to_account_info(),
                     mint_authority: ctx.accounts.backend.to_account_info(),
                     update_authority: ctx.accounts.backend.to_account_info(),
                 },
@@ -62,7 +66,7 @@ pub mod vesting_contract {
 
         // Update the mint account to the minimum balance
         update_account_lamports_to_minimum_balance(
-            ctx.accounts.mint.to_account_info(),
+            ctx.accounts.escrow_token_mint.to_account_info(),
             ctx.accounts.payer.to_account_info(),
             ctx.accounts.system_program.to_account_info()
         )?;
@@ -72,47 +76,30 @@ pub mod vesting_contract {
         Ok(())
     }
 
-    /// Mints new tokens to a specified account
-    pub fn mint_tokens(
-        ctx: Context<MintTokens>,
-        metadata: InitTokenParams,
-        quantity: u64
-    ) -> Result<()> {
-        // Create seeds for PDA (Program Derived Address)
-        let seeds = &[
-            "mint".as_bytes(),
-            metadata.name.as_bytes(),
-            &ctx.accounts.valued_token_mint.key().to_bytes(),
-            &ctx.accounts.owner.key().to_bytes(),
-            &ctx.accounts.backend.key().to_bytes(),
-            &[ctx.bumps.mint],
-        ];
-        let signer = [&seeds[..]];
-
-        // Mint tokens using the token program
-        mint_to(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                MintTo {
-                    authority: ctx.accounts.backend.to_account_info(),
-                    to: ctx.accounts.destination.to_account_info(),
-                    mint: ctx.accounts.mint.to_account_info(),
-                },
-                &signer
-            ),
-            quantity
-        )?;
-
+    /// Initializes a new vault account
+    pub fn initialize_vault_account(ctx: Context<InitializVaultAccount>) -> Result<()> {
+        ctx.accounts.vault_account.owner = ctx.accounts.owner.key();
+        ctx.accounts.vault_account.backend = ctx.accounts.backend.key();
+        ctx.accounts.vault_account.valued_token_mint = ctx.accounts.valued_token_mint.key();
+        ctx.accounts.vault_account.escrow_token_mint = ctx.accounts.escrow_token_mint.key();
         Ok(())
     }
 
-    /// Initializes a new dual authorization account
-    pub fn initialize_dual_auth_account(ctx: Context<InitializeDualAuthAccount>) -> Result<()> {
-        // ctx.accounts.dual_auth_account.owner = ctx.accounts.owner.key();
-        ctx.accounts.dual_auth_account.user = ctx.accounts.user.key();
-        ctx.accounts.dual_auth_account.backend = ctx.accounts.backend.key();
-        // ctx.accounts.dual_auth_account.valued_token_mint = ctx.accounts.valued_token_mint.key();
-        // ctx.accounts.dual_auth_account.escrow_token_mint = ctx.accounts.escrow_token_mint.key();
+    /// Mints new tokens to a specified account
+    pub fn mint_escrow_tokens(
+        ctx: Context<MintEscrowTokens>,
+        _metadata: InitEscrowTokenParams
+    ) -> Result<()> {
+        // Mint tokens to escrow_vault_token_account
+        mint_to(
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), MintTo {
+                mint: ctx.accounts.escrow_token_mint.to_account_info(),
+                to: ctx.accounts.escrow_vault_token_account.to_account_info(),
+                authority: ctx.accounts.backend.to_account_info(),
+            }),
+            ctx.accounts.valued_token_mint.supply
+        )?;
+
         Ok(())
     }
 
@@ -120,61 +107,39 @@ pub mod vesting_contract {
     #[inline(never)]
     pub fn exchange(ctx: Context<Exchange>, amount: u64) -> Result<()> {
         // Check if the amount is sufficient (at the minimum value)
-        if amount < MINIMUM_AMOUNT {
-            return Err(VestingErrorCode::MinimumAmountNotMet.into());
-        }
+        let one_token = (10u64).pow(ctx.accounts.valued_token_mint.decimals as u32);
+        require!(amount >= one_token, VestingErrorCode::MinimumAmountNotMet);
 
-        // Transfer tokens from user to dual auth valued token account
+        // Transfer tokens from user to vault valued token account
         transfer_tokens_helper(
+            &ctx.accounts.vault_account,
             &ctx.accounts.user_valued_token_account,
             &ctx.accounts.valued_token_mint,
-            &ctx.accounts.dual_valued_token_account,
-            &ctx.accounts.user.to_account_info(),
+            &ctx.accounts.valued_vault_token_account,
+            &Some(ctx.accounts.user.to_account_info()),
             &ctx.accounts.owner,
-            &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
             &ctx.accounts.escrow_token_mint,
             &ctx.accounts.valued_token_program,
             amount,
-            ctx.bumps.dual_auth_account
+            ctx.bumps.vault_account
         )?;
 
-        // Transfer equivalent tokens from backend to dual auth escrow token account
+        // Transfer equivalent tokens from escrow vault account to the user token account
         transfer_tokens_helper(
-            &ctx.accounts.backend_escrow_token_account,
+            &ctx.accounts.vault_account,
+            &ctx.accounts.escrow_vault_token_account,
             &ctx.accounts.escrow_token_mint,
-            &ctx.accounts.dual_escrow_token_account,
-            &&ctx.accounts.backend.to_account_info(),
+            &ctx.accounts.user_escrow_token_account,
+            &None,
             &ctx.accounts.owner,
-            &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
             &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
-            ctx.bumps.dual_auth_account
-        )?;
-
-        Ok(())
-    }
-
-    /// Transfers tokens between accounts under dual authorization
-    pub fn transfer_tokens(ctx: Context<TransferTokens>, amount: u64) -> Result<()> {
-        // Use the helper function to transfer tokens
-        transfer_tokens_helper(
-            &ctx.accounts.from,
-            &ctx.accounts.mint,
-            &ctx.accounts.to,
-            &ctx.accounts.dual_auth_account.to_account_info(),
-            &ctx.accounts.owner,
-            &ctx.accounts.user,
-            &ctx.accounts.backend,
-            &ctx.accounts.valued_token_mint,
-            &ctx.accounts.escrow_token_mint,
-            &ctx.accounts.token_program,
-            amount,
-            ctx.bumps.dual_auth_account
+            ctx.bumps.vault_account
         )?;
 
         Ok(())
@@ -186,12 +151,12 @@ pub mod vesting_contract {
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
         // Check if the amount is sufficient (at the minimum value)
-        if amount < MINIMUM_AMOUNT {
-            return Err(VestingErrorCode::MinimumAmountNotMet.into());
-        }
+        let one_token = (10u64).pow(ctx.accounts.valued_token_mint.decimals as u32);
+        require!(amount >= one_token, VestingErrorCode::MinimumAmountNotMet);
 
         // Initialize vesting session with details
         vesting_session.id = vesting_account.last_session_id;
+        vesting_session.user = ctx.accounts.user.key();
         vesting_session.vesting_sessions_account = vesting_account.key();
         vesting_session.amount = amount;
         vesting_session.amount_withdrawn = 0;
@@ -201,21 +166,22 @@ pub mod vesting_contract {
 
         // Increment the session ID for the next vesting session
         vesting_account.last_session_id += 1;
+        vesting_account.user = ctx.accounts.user.key();
 
-        // Transfer tokens from dual escrow to backend escrow
+        // Transfer tokens from the user escrow account back to vault escrow account
         transfer_tokens_helper(
-            &ctx.accounts.dual_escrow_token_account,
+            &ctx.accounts.vault_account,
+            &ctx.accounts.user_escrow_token_account,
             &ctx.accounts.escrow_token_mint,
-            &ctx.accounts.backend_escrow_token_account,
-            &ctx.accounts.dual_auth_account.to_account_info(),
+            &ctx.accounts.escrow_vault_token_account,
+            &Some(ctx.accounts.user.to_account_info()),
             &ctx.accounts.owner,
-            &ctx.accounts.user,
             &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
             &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
-            ctx.bumps.dual_auth_account
+            ctx.bumps.vault_account
         )?;
 
         Ok(())
@@ -225,24 +191,29 @@ pub mod vesting_contract {
     pub fn session_withdraw(ctx: Context<SessionWithdraw>) -> Result<()> {
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
+        require!(
+            vesting_session.cancelled_at == 0,
+            VestingErrorCode::InteractingWithCanceledSession
+        );
+
         // Calculate amount to release using the helper function
         let amount_to_release = calculate_amount_to_release(vesting_session)?;
 
         if amount_to_release > 0 {
             // Transfer releasable tokens
             transfer_tokens_helper(
-                &ctx.accounts.dual_valued_token_account,
+                &ctx.accounts.vault_account,
+                &ctx.accounts.valued_vault_token_account,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                &ctx.accounts.dual_auth_account.to_account_info(),
+                &None,
                 &ctx.accounts.owner,
-                &ctx.accounts.user,
                 &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.token_program,
                 amount_to_release,
-                ctx.bumps.dual_auth_account
+                ctx.bumps.vault_account
             )?;
 
             // Update vesting session state
@@ -261,6 +232,11 @@ pub mod vesting_contract {
     pub fn session_cancel(ctx: Context<SessionCancelation>) -> Result<()> {
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
+        require!(
+            vesting_session.cancelled_at == 0,
+            VestingErrorCode::InteractingWithCanceledSession
+        );
+
         // Calculate amount to release using the helper function
         let valued_amount_to_release = calculate_amount_to_release(vesting_session)?;
 
@@ -274,18 +250,18 @@ pub mod vesting_contract {
         if valued_amount_to_release > 0 {
             // Transfer releasable tokens to user
             transfer_tokens_helper(
-                &ctx.accounts.dual_valued_token_account,
+                &ctx.accounts.vault_account,
+                &ctx.accounts.valued_vault_token_account,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                &ctx.accounts.dual_auth_account.to_account_info(),
+                &None,
                 &ctx.accounts.owner,
-                &ctx.accounts.user,
                 &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.valued_token_program,
                 valued_amount_to_release,
-                ctx.bumps.dual_auth_account
+                ctx.bumps.vault_account
             )?;
 
             // Update vesting session state
@@ -297,22 +273,66 @@ pub mod vesting_contract {
         }
 
         if escrow_amount_to_get_back > 0 {
-            // Return remaining tokens to escrow
+            // Return remaining tokens to user escrow account
             transfer_tokens_helper(
-                &ctx.accounts.backend_escrow_token_account,
+                &ctx.accounts.vault_account,
+                &ctx.accounts.escrow_vault_token_account,
                 &ctx.accounts.escrow_token_mint,
-                &ctx.accounts.dual_escrow_token_account,
-                &ctx.accounts.backend.to_account_info(),
+                &ctx.accounts.user_escrow_token_account,
+                &None,
                 &ctx.accounts.owner,
-                &ctx.accounts.user,
                 &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.token_program,
                 escrow_amount_to_get_back,
-                ctx.bumps.dual_auth_account
+                ctx.bumps.vault_account
             )?;
         }
+
+        // Mark the session as cancelled
+        vesting_session.cancelled_at = Clock::get()?.unix_timestamp as u64;
+        Ok(())
+    }
+
+    /// Exits an ongoing vesting session
+    pub fn session_exit(ctx: Context<SessionCancelation>) -> Result<()> {
+        let vesting_session = &mut ctx.accounts.vesting_session_account;
+
+        require!(
+            vesting_session.cancelled_at == 0,
+            VestingErrorCode::InteractingWithCanceledSession
+        );
+
+        // Calculate the amount to return back to the user
+        let amount = vesting_session.amount
+            .checked_sub(vesting_session.amount_withdrawn)
+            .ok_or(VestingErrorCode::ArithmeticOverflow)?;
+
+        if amount > 0 {
+            // Transfer releasable tokens to user
+            transfer_tokens_helper(
+                &ctx.accounts.vault_account,
+                &ctx.accounts.valued_vault_token_account,
+                &ctx.accounts.valued_token_mint,
+                &ctx.accounts.user_valued_token_account,
+                &None,
+                &ctx.accounts.owner,
+                &ctx.accounts.backend,
+                &ctx.accounts.valued_token_mint,
+                &ctx.accounts.escrow_token_mint,
+                &ctx.accounts.valued_token_program,
+                amount,
+                ctx.bumps.vault_account
+            )?;
+        }
+
+        // Update vesting session state
+        vesting_session.amount_withdrawn = vesting_session.amount_withdrawn
+            .checked_add(amount)
+            .ok_or(VestingErrorCode::ArithmeticOverflow)?;
+
+        vesting_session.last_withdraw_at = Clock::get()?.unix_timestamp as u64;
 
         // Mark the session as cancelled
         vesting_session.cancelled_at = Clock::get()?.unix_timestamp as u64;

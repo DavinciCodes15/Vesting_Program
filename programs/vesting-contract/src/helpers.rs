@@ -2,7 +2,7 @@
 
 use anchor_lang::{ prelude::*, solana_program::{ program::invoke, system_instruction::transfer } };
 use anchor_spl::token_interface::{ transfer_checked, Mint, TokenAccount, TransferChecked };
-use crate::{ VestingErrorCode, VestingSession };
+use crate::{ VaultAccount, VestingErrorCode, VestingSession };
 
 ///  update the account's lamports to the minimum balance required by the rent sysvar
 pub fn update_account_lamports_to_minimum_balance<'info>(
@@ -22,12 +22,12 @@ pub fn update_account_lamports_to_minimum_balance<'info>(
 
 /// Helper function to transfer tokens
 pub fn transfer_tokens_helper<'info>(
+    vault_account: &Account<'info, VaultAccount>,
     from: &InterfaceAccount<'info, TokenAccount>,
     mint: &InterfaceAccount<'info, Mint>,
     to: &InterfaceAccount<'info, TokenAccount>,
-    authority: &AccountInfo<'info>,
+    authority: &Option<AccountInfo<'info>>,
     owner: &AccountInfo<'info>,
-    user: &Signer<'info>,
     backend: &Signer<'info>,
     valued_token_mint: &InterfaceAccount<'info, Mint>,
     escrow_token_mint: &InterfaceAccount<'info, Mint>,
@@ -39,15 +39,20 @@ pub fn transfer_tokens_helper<'info>(
     let valued_mint = valued_token_mint.key();
     let escrow_mint = escrow_token_mint.key();
     let seeds = &[
-        b"dual_auth",
+        b"token-vault",
         owner.key.as_ref(),
-        user.key.as_ref(),
         backend.key.as_ref(),
         valued_mint.as_ref(),
         escrow_mint.as_ref(),
         &[bump],
     ];
     let signer = &[&seeds[..]];
+
+    let (authority, signer_seeds) = if let Some(auth) = &authority {
+        (auth.to_account_info(), None)
+    } else {
+        (vault_account.to_account_info(), Some(signer))
+    };
 
     // Set up the accounts for the transfer
     let cpi_accounts = TransferChecked {
@@ -57,7 +62,11 @@ pub fn transfer_tokens_helper<'info>(
         authority: authority.to_account_info(),
     };
     let cpi_program = token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+
+    let cpi_ctx = match signer_seeds {
+        Some(seeds) => CpiContext::new_with_signer(cpi_program, cpi_accounts, seeds),
+        None => CpiContext::new(cpi_program, cpi_accounts),
+    };
 
     // Execute the transfer
     transfer_checked(cpi_ctx, amount, mint.decimals)?;
@@ -76,26 +85,30 @@ pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u
     let current_time_minutes = now.checked_div(60).ok_or(VestingErrorCode::DivisionByZero)?;
 
     // Calculate vesting end time
-    let vesting_end_time = vesting_session.start_date
+    let vesting_start_minutes = vesting_session.start_date
         .checked_div(60)
-        .ok_or(VestingErrorCode::DivisionByZero)?
+        .ok_or(VestingErrorCode::DivisionByZero)?;
+    let vesting_end_time = vesting_start_minutes
         .checked_add(SIX_MONTHS_IN_MINUTES)
         .ok_or(VestingErrorCode::ArithmeticOverflow)?;
+
+    // Check if vesting period has ended
+    if current_time_minutes >= vesting_end_time {
+        // Vesting period has ended, return full remaining amount
+        return Ok(vesting_session.amount.saturating_sub(vesting_session.amount_withdrawn));
+    }
 
     // Cap the current time at the end of the vesting period
     let current_time = std::cmp::min(current_time_minutes, vesting_end_time);
 
     // Calculate elapsed time since last withdrawal or start
+    let last_withdraw_minutes = vesting_session.last_withdraw_at
+        .checked_div(60)
+        .ok_or(VestingErrorCode::DivisionByZero)?;
     let elapsed_minutes = if vesting_session.last_withdraw_at > 0 {
-        current_time.saturating_sub(
-            vesting_session.last_withdraw_at
-                .checked_div(60)
-                .ok_or(VestingErrorCode::DivisionByZero)?
-        )
+        current_time.saturating_sub(last_withdraw_minutes)
     } else {
-        current_time.saturating_sub(
-            vesting_session.start_date.checked_div(60).ok_or(VestingErrorCode::DivisionByZero)?
-        )
+        current_time.saturating_sub(vesting_start_minutes)
     };
 
     // Calculate amount to be released

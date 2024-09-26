@@ -13,6 +13,8 @@ pub enum VestingErrorCode {
     ArithmeticOverflow,
     #[msg("Division by zero attempted.")]
     DivisionByZero,
+    #[msg("Interacting with canceled session.")]
+    InteractingWithCanceledSession,
 }
 
 // Implementation to convert ErrorCode to ProgramError

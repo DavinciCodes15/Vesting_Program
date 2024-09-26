@@ -1,94 +1,112 @@
-# Vesting Contract Documentation
+# Solana Vesting Contract Documentation
 
 ## Overview
 
-This Solana program implements a token vesting contract with dual authorization features. It allows for the creation, management, and execution of token vesting schedules, as well as token minting and transfers. The contract is designed to work with the Solana blockchain and utilizes the Anchor framework.
+This Solana Anchor contract implements a token vesting system with dual-token functionality. It allows users to exchange one token type for another, create vesting schedules, and manage the vesting process. The contract supports initialization of new tokens, vault accounts, and vesting sessions, as well as operations like token exchange, withdrawals, and session cancellations.
 
 ## Key Components
 
-### Accounts
+1. **Token Mints**
+   - Valued Token: The primary token used in the system.
+   - Escrow Token: A secondary token created and managed by the contract.
 
-1. **DualAuthAccount**: Manages dual authorization between a user and a backend.
-2. **VestingSessionsAccount**: Tracks all vesting sessions.
-3. **VestingSession**: Represents an individual vesting session.
+2. **Accounts**
+   - Vault Account: Stores information about the token vault.
+   - Vesting Sessions Account: Tracks all vesting sessions.
+   - Vesting Session Account: Represents an individual vesting session.
 
-### Instructions
+3. **Key Roles**
+   - User: The account participating in vesting.
+   - Backend: An authority account with special permissions.
+   - Owner: Another authority account (often the same as the backend).
 
-1. `init_token`: Initializes a new token with metadata.
-2. `mint_tokens`: Mints new tokens to a specified account.
-3. `initialize_dual_auth_account`: Creates a new dual authorization account.
-4. `exchange`: Exchanges tokens between user and dual auth accounts.
-5. `transfer_tokens`: Transfers tokens between accounts under dual authorization.
-6. `create_vesting_session`: Creates a new vesting session.
-7. `session_withdraw`: Withdraws vested tokens from a session.
-8. `session_cancel`: Cancels an ongoing vesting session.
+## Contract Structure
 
-## Detailed Instruction Documentation
+The contract is split into several files:
 
-### 1. init_token
+- `lib.rs`: Main contract logic and instruction handlers.
+- `errors.rs`: Custom error definitions.
+- `helpers.rs`: Utility functions for common operations.
+- `vesting_accounts.rs`: Account structures and constraints.
 
-Initializes a new token with metadata.
+## Functionality
 
-**Parameters:**
-- `metadata: InitTokenParams`: Contains token metadata (name, symbol, URI, decimals).
+### 1. Token Initialization
 
-### 2. mint_tokens
+- **Function:** `init_escrow_token`
+- **Purpose:** Initializes a new escrow token with metadata.
+- **Key Actions:**
+  - Creates a Program Derived Address (PDA) for the token mint.
+  - Initializes token metadata.
 
-Mints new tokens to a specified account.
+### 2. Vault Account Initialization
 
-**Parameters:**
-- `metadata: InitTokenParams`: Token metadata.
-- `quantity: u64`: Amount of tokens to mint.
+- **Function:** `initialize_vault_account`
+- **Purpose:** Sets up a new vault account to manage tokens.
+- **Key Actions:**
+  - Initializes the vault account with owner and token information.
 
-### 3. initialize_dual_auth_account
+### 3. Escrow Token Minting
 
-Initializes a new dual authorization account.
+- **Function:** `mint_escrow_tokens`
+- **Purpose:** Mints new escrow tokens into the vault account.
+- **Key Actions:**
+  - Mints tokens to the escrow vault token account.
 
-### 4. exchange
+### 4. Token Exchange
 
-Exchanges tokens between user and dual auth accounts.
+- **Function:** `exchange`
+- **Purpose:** Allows users to exchange valued tokens for escrow tokens.
+- **Key Actions:**
+  - Transfers valued tokens from user to vault.
+  - Transfers equivalent escrow tokens from vault to user.
 
-**Parameters:**
-- `amount: u64`: Amount of tokens to exchange.
+### 5. Vesting Session Creation
 
-### 5. transfer_tokens
+- **Function:** `create_vesting_session`
+- **Purpose:** Initiates a new vesting schedule for a user.
+- **Key Actions:**
+  - Creates a new vesting session account.
+  - Transfers escrow tokens from user to vault.
 
-Transfers tokens between accounts under dual authorization.
+### 6. Vesting Withdrawal
 
-**Parameters:**
-- `amount: u64`: Amount of tokens to transfer.
+- **Function:** `session_withdraw`
+- **Purpose:** Allows users to withdraw vested tokens.
+- **Key Actions:**
+  - Calculates the amount of tokens available for withdrawal.
+  - Transfers vested tokens from vault to user.
+  - Updates the vesting session state.
 
-### 6. create_vesting_session
+### 7. Vesting Session Cancellation
 
-Creates a new vesting session.
+- **Function:** `session_cancel`
+- **Purpose:** Cancels an ongoing vesting session.
+- **Key Actions:**
+  - Calculates vested and unvested amounts.
+  - Transfers vested tokens to user.
+  - Returns unvested escrow tokens to the user.
+  - Marks the session as cancelled.
 
-**Parameters:**
-- `amount: u64`: Amount of tokens to vest.
+### 8. Vesting Session Exit
 
-### 7. session_withdraw
+- **Function:** `session_exit`
+- **Purpose:** Allows a user to exit a vesting session and claim all remaining tokens, as failsafe.
+- **Key Actions:**
+  - Transfers all remaining tokens to the user.
+  - Marks the session as cancelled.
 
-Withdraws vested tokens from a session.
+## Security Features
 
-### 8. session_cancel
+1. **PDA Usage:** Utilizes Program Derived Addresses for secure account derivation.
+2. **Authority Checks:** Implements checks to ensure only authorized accounts can perform sensitive operations.
+3. **Arithmetic Overflow Protection:** Uses checked arithmetic operations to prevent overflows.
 
-Cancels an ongoing vesting session.
+## Testing
 
-## Error Handling
-
-The contract defines custom error codes in the `VestingErrorCode` enum:
-
-- `InsufficientFunds`: When there are not enough funds for an operation.
-- `InsufficientWithdrawalAmount`: When the amount to withdraw is less than the vested amount.
-- `MinimumAmountNotMet`: When the specified amount is less than the minimum required.
-- `ArithmeticOverflow`: When an arithmetic operation results in an overflow.
-- `DivisionByZero`: When a division by zero is attempted.
-
-## Security Considerations
-
-1. The contract uses PDAs (Program Derived Addresses) for secure key derivation.
-2. Dual authorization is implemented to enhance security for critical operations.
-3. Checked math operations are used to prevent overflow/underflow vulnerabilities.
-
-## Conclusion
-
-This vesting contract provides a robust foundation for managing token vesting on the Solana blockchain. It offers flexibility through its dual authorization system and provides essential functionality for creating, managing, and executing vesting schedules. As with any financial smart contract, thorough testing and auditing are recommended before deployment to a production environment.
+The contract includes comprehensive tests in `vesting-contract.ts`, covering:
+- Token initialization and minting
+- Vault account creation
+- Token exchange
+- Vesting session creation, withdrawal, cancellation, and exit
+- Security scenarios (e.g., rapid withdrawals, incorrect authority)
