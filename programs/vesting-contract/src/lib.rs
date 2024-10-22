@@ -1,50 +1,74 @@
+pub mod errors;
 pub mod helpers;
 pub mod vesting_accounts;
-pub mod errors;
 
-use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{
-    MintTo,
-    mint_to,
-    token_metadata_initialize,
-    TokenMetadataInitialize,
-};
-
-use crate::vesting_accounts::*;
 use crate::errors::*;
-use crate::helpers::{
-    // calculate_amount_to_release,
-    transfer_tokens_helper,
-    update_account_lamports_to_minimum_balance,
-};
+use crate::vesting_accounts::*;
+use anchor_lang::prelude::*;
 
 // Declare the program ID
-declare_id!("3qUf3hWYhvjhbwMfVjushfDG5nWmg8VCAtG5cAQrDMdr");
+declare_id!("GZ5Q5XdSv4PARXMn5ZGAvF7KjafLStsCGwEAzjowpqsw");
 
 #[program]
 pub mod vesting_contract {
-    use helpers::calculate_amount_to_release;
+
+    use crate::helpers::{
+        calculate_amount_to_release, transfer_escrow_from_vault, transfer_tokens,
+        update_account_lamports_to_minimum_balance,
+    };
+
+    use anchor_spl::token_interface::{
+        token_metadata_initialize, token_metadata_update_field, TokenMetadataInitialize,
+        TokenMetadataUpdateField,
+    };
+    use spl_token_metadata_interface::state::Field;
 
     use super::*;
 
-    // Constant representing six months in minutes
-    // const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60; // 180 days * 24 hours * 60 minutes
+    /// Minimum value which a currency can provide amounts every minute (equivalent to the amount of minutes in 6 months)
+    const MIN_DIVISIBLE_BY_VESTING_PERIOD: u64 = 180 * 24 * 60;
+
+    pub fn set_backend_account(
+        ctx: Context<SetBackendAccountCtx>,
+        metadata: SetBackendAccountParams,
+    ) -> Result<()> {
+        let program_authority = &ctx.accounts.program_data.upgrade_authority_address;
+        let tx_payer = &ctx.accounts.payer.key();
+        let backend_data = &mut ctx.accounts.backend_data;
+
+        let is_program_authority = match program_authority {
+            Some(authority) => tx_payer == authority,
+            None => false,
+        };
+        let is_backend_change_authority = match &backend_data.change_authority {
+            Some(authority) => tx_payer == authority,
+            None => false,
+        };
+
+        if is_program_authority || is_backend_change_authority {
+            backend_data.backend_account = metadata.new_backend_account;
+            if metadata.new_authority.is_some() {
+                backend_data.change_authority = metadata.new_authority;
+            }
+        } else {
+            return err!(VestingErrorCode::UnathorizedToExecute);
+        }
+
+        Ok(())
+    }
 
     /// Initializes a new token with metadata
     pub fn init_escrow_token(
         ctx: Context<InitEscrowToken>,
-        metadata: InitEscrowTokenParams
+        metadata: InitEscrowTokenParams,
     ) -> Result<()> {
-        // Create seeds for PDA (Program Derived Address)
-        let seeds = &[
-            "mint".as_bytes(),
-            metadata.name.as_bytes(),
+        let vault_seed = &[
+            b"token_vault".as_ref(),
             &ctx.accounts.valued_token_mint.key().to_bytes(),
-            &ctx.accounts.owner.key().to_bytes(),
-            &ctx.accounts.backend.key().to_bytes(),
-            &[ctx.bumps.escrow_token_mint],
+            &ctx.accounts.escrow_token_mint.key().to_bytes(),
+            &[ctx.bumps.vault_account],
         ];
-        let signer = [&seeds[..]];
+        let vault_signer = &[&vault_seed[..]];
 
         // Initialize token metadata
         token_metadata_initialize(
@@ -54,92 +78,111 @@ pub mod vesting_contract {
                     token_program_id: ctx.accounts.token_program.to_account_info(),
                     mint: ctx.accounts.escrow_token_mint.to_account_info(),
                     metadata: ctx.accounts.escrow_token_mint.to_account_info(),
-                    mint_authority: ctx.accounts.backend.to_account_info(),
-                    update_authority: ctx.accounts.backend.to_account_info(),
+                    mint_authority: ctx.accounts.vault_account.to_account_info(),
+                    update_authority: ctx.accounts.vault_account.to_account_info(),
                 },
-                &signer
+                vault_signer,
             ),
             metadata.name.clone(),
             metadata.symbol,
-            metadata.uri
+            metadata.uri,
         )?;
 
         // Update the mint account to the minimum balance
         update_account_lamports_to_minimum_balance(
             ctx.accounts.escrow_token_mint.to_account_info(),
             ctx.accounts.payer.to_account_info(),
-            ctx.accounts.system_program.to_account_info()
+            ctx.accounts.system_program.to_account_info(),
         )?;
 
-        msg!("Token mint created successfully.");
-
-        Ok(())
-    }
-
-    /// Initializes a new vault account
-    pub fn initialize_vault_account(ctx: Context<InitializVaultAccount>) -> Result<()> {
-        ctx.accounts.vault_account.owner = ctx.accounts.owner.key();
-        ctx.accounts.vault_account.backend = ctx.accounts.backend.key();
+        ctx.accounts.vault_account.creator = ctx.accounts.payer.key();
         ctx.accounts.vault_account.valued_token_mint = ctx.accounts.valued_token_mint.key();
         ctx.accounts.vault_account.escrow_token_mint = ctx.accounts.escrow_token_mint.key();
+
+        msg!("Escrow token structure created successfully");
+
         Ok(())
     }
 
-    /// Mints new tokens to a specified account
-    pub fn mint_escrow_tokens(
-        ctx: Context<MintEscrowTokens>,
-        _metadata: InitEscrowTokenParams
+    pub fn init_vault_token_accounts(_ctx: Context<InitVaultTokenAccounts>) -> Result<()> {
+        msg!("Token accounts created successfully");
+        Ok(())
+    }
+
+    pub fn change_escrow_metadata(
+        ctx: Context<ChangeEscrowMetadataAccounts>,
+        metadata: ChangeEscrowMetadataParams,
     ) -> Result<()> {
-        // Mint tokens to escrow_vault_token_account
-        mint_to(
-            CpiContext::new(ctx.accounts.token_program.to_account_info(), MintTo {
-                mint: ctx.accounts.escrow_token_mint.to_account_info(),
-                to: ctx.accounts.escrow_vault_token_account.to_account_info(),
-                authority: ctx.accounts.backend.to_account_info(),
-            }),
-            ctx.accounts.valued_token_mint.supply
+        require!(!metadata.value.is_empty(), VestingErrorCode::InvalidMeta);
+        let vault_seed = &[
+            b"token_vault".as_ref(),
+            &ctx.accounts.valued_token_mint.key().to_bytes(),
+            &ctx.accounts.escrow_token_mint.key().to_bytes(),
+            &[ctx.bumps.vault_account],
+        ];
+        let vault_signer = &[&vault_seed[..]];
+
+        let field_to_update = match metadata.param_key.as_str() {
+            "name" => Field::Name,
+            "symbol" => Field::Symbol,
+            "uri" => Field::Uri,
+            _ => return err!(VestingErrorCode::InvalidMeta),
+        };
+
+        token_metadata_update_field(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TokenMetadataUpdateField {
+                    token_program_id: ctx.accounts.token_program.to_account_info(),
+                    metadata: ctx.accounts.escrow_token_mint.to_account_info(),
+                    update_authority: ctx.accounts.vault_account.to_account_info(),
+                },
+                vault_signer,
+            ),
+            field_to_update,
+            metadata.value.clone(),
         )?;
 
+        // Update the mint account to the minimum balance
+        update_account_lamports_to_minimum_balance(
+            ctx.accounts.escrow_token_mint.to_account_info(),
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        )?;
+
+        msg!("Escrow token structure updated successfully");
         Ok(())
     }
 
     /// Exchanges tokens between user and dual auth accounts
-    #[inline(never)]
     pub fn exchange(ctx: Context<Exchange>, amount: u64) -> Result<()> {
-        // Check if the amount is sufficient (at the minimum value)
-        let one_token = (10u64).pow(ctx.accounts.valued_token_mint.decimals as u32);
-        require!(amount >= one_token, VestingErrorCode::MinimumAmountNotMet);
+        require!(amount > 0, VestingErrorCode::MinimumAmountHigherZero);
+        require!(
+            ctx.accounts.user_valued_token_account.amount > amount,
+            VestingErrorCode::InsufficientFunds
+        );
 
         // Transfer tokens from user to vault valued token account
-        transfer_tokens_helper(
-            &ctx.accounts.vault_account,
+        transfer_tokens(
             &ctx.accounts.user_valued_token_account,
             &ctx.accounts.valued_token_mint,
             &ctx.accounts.valued_vault_token_account,
-            &Some(ctx.accounts.user.to_account_info()),
-            &ctx.accounts.owner,
-            &ctx.accounts.backend,
-            &ctx.accounts.valued_token_mint,
-            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.valued_token_program,
             amount,
-            ctx.bumps.vault_account
+            ctx.accounts.user.to_account_info(),
+            None,
         )?;
 
-        // Transfer equivalent tokens from escrow vault account to the user token account
-        transfer_tokens_helper(
+        // Transfer and/or mint equivalent tokens from escrow vault account to the user token account
+        transfer_escrow_from_vault(
+            &ctx.accounts.token_program,
             &ctx.accounts.vault_account,
             &ctx.accounts.escrow_vault_token_account,
-            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.user_escrow_token_account,
-            &None,
-            &ctx.accounts.owner,
-            &ctx.accounts.backend,
             &ctx.accounts.valued_token_mint,
             &ctx.accounts.escrow_token_mint,
-            &ctx.accounts.token_program,
+            ctx.bumps.vault_account,
             amount,
-            ctx.bumps.vault_account
         )?;
 
         Ok(())
@@ -151,8 +194,10 @@ pub mod vesting_contract {
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
         // Check if the amount is sufficient (at the minimum value)
-        let one_token = (10u64).pow(ctx.accounts.valued_token_mint.decimals as u32);
-        require!(amount >= one_token, VestingErrorCode::MinimumAmountNotMet);
+        require!(
+            amount >= MIN_DIVISIBLE_BY_VESTING_PERIOD,
+            VestingErrorCode::MinimumAmountNotMet
+        );
 
         // Initialize vesting session with details
         vesting_session.id = vesting_account.last_session_id;
@@ -169,19 +214,14 @@ pub mod vesting_contract {
         vesting_account.user = ctx.accounts.user.key();
 
         // Transfer tokens from the user escrow account back to vault escrow account
-        transfer_tokens_helper(
-            &ctx.accounts.vault_account,
+        transfer_tokens(
             &ctx.accounts.user_escrow_token_account,
             &ctx.accounts.escrow_token_mint,
             &ctx.accounts.escrow_vault_token_account,
-            &Some(ctx.accounts.user.to_account_info()),
-            &ctx.accounts.owner,
-            &ctx.accounts.backend,
-            &ctx.accounts.valued_token_mint,
-            &ctx.accounts.escrow_token_mint,
             &ctx.accounts.token_program,
             amount,
-            ctx.bumps.vault_account
+            ctx.accounts.user.to_account_info(),
+            None,
         )?;
 
         Ok(())
@@ -200,24 +240,28 @@ pub mod vesting_contract {
         let amount_to_release = calculate_amount_to_release(vesting_session)?;
 
         if amount_to_release > 0 {
+            let vault_seed = &[
+                "token_vault".as_bytes(),
+                &ctx.accounts.valued_token_mint.key().to_bytes(),
+                &ctx.accounts.escrow_token_mint.key().to_bytes(),
+                &[ctx.bumps.vault_account],
+            ];
+            let vault_signer = &[&vault_seed[..]];
+
             // Transfer releasable tokens
-            transfer_tokens_helper(
-                &ctx.accounts.vault_account,
+            transfer_tokens(
                 &ctx.accounts.valued_vault_token_account,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                &None,
-                &ctx.accounts.owner,
-                &ctx.accounts.backend,
-                &ctx.accounts.valued_token_mint,
-                &ctx.accounts.escrow_token_mint,
-                &ctx.accounts.token_program,
+                &ctx.accounts.valued_token_program,
                 amount_to_release,
-                ctx.bumps.vault_account
+                ctx.accounts.vault_account.to_account_info(),
+                Some(vault_signer),
             )?;
 
             // Update vesting session state
-            vesting_session.amount_withdrawn = vesting_session.amount_withdrawn
+            vesting_session.amount_withdrawn = vesting_session
+                .amount_withdrawn
                 .checked_add(amount_to_release)
                 .ok_or(VestingErrorCode::ArithmeticOverflow)?;
             vesting_session.last_withdraw_at = Clock::get()?.unix_timestamp as u64;
@@ -241,7 +285,8 @@ pub mod vesting_contract {
         let valued_amount_to_release = calculate_amount_to_release(vesting_session)?;
 
         // Calculate the amount to return to escrow
-        let escrow_amount_to_get_back = vesting_session.amount
+        let escrow_amount_to_get_back = vesting_session
+            .amount
             .checked_sub(vesting_session.amount_withdrawn)
             .ok_or(VestingErrorCode::ArithmeticOverflow)?
             .checked_sub(valued_amount_to_release)
@@ -249,23 +294,28 @@ pub mod vesting_contract {
 
         if valued_amount_to_release > 0 {
             // Transfer releasable tokens to user
-            transfer_tokens_helper(
-                &ctx.accounts.vault_account,
+            let vault_seed = &[
+                "token_vault".as_bytes(),
+                &ctx.accounts.valued_token_mint.key().to_bytes(),
+                &ctx.accounts.escrow_token_mint.key().to_bytes(),
+                &[ctx.bumps.vault_account],
+            ];
+            let vault_signer = &[&vault_seed[..]];
+
+            // Transfer releasable tokens
+            transfer_tokens(
                 &ctx.accounts.valued_vault_token_account,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                &None,
-                &ctx.accounts.owner,
-                &ctx.accounts.backend,
-                &ctx.accounts.valued_token_mint,
-                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.valued_token_program,
                 valued_amount_to_release,
-                ctx.bumps.vault_account
+                ctx.accounts.vault_account.to_account_info(),
+                Some(vault_signer),
             )?;
 
             // Update vesting session state
-            vesting_session.amount_withdrawn = vesting_session.amount_withdrawn
+            vesting_session.amount_withdrawn = vesting_session
+                .amount_withdrawn
                 .checked_add(valued_amount_to_release)
                 .ok_or(VestingErrorCode::ArithmeticOverflow)?;
 
@@ -274,19 +324,15 @@ pub mod vesting_contract {
 
         if escrow_amount_to_get_back > 0 {
             // Return remaining tokens to user escrow account
-            transfer_tokens_helper(
+            transfer_escrow_from_vault(
+                &ctx.accounts.token_program,
                 &ctx.accounts.vault_account,
                 &ctx.accounts.escrow_vault_token_account,
-                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.user_escrow_token_account,
-                &None,
-                &ctx.accounts.owner,
-                &ctx.accounts.backend,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.escrow_token_mint,
-                &ctx.accounts.token_program,
+                ctx.bumps.vault_account,
                 escrow_amount_to_get_back,
-                ctx.bumps.vault_account
             )?;
         }
 
@@ -305,30 +351,36 @@ pub mod vesting_contract {
         );
 
         // Calculate the amount to return back to the user
-        let amount = vesting_session.amount
+        let amount = vesting_session
+            .amount
             .checked_sub(vesting_session.amount_withdrawn)
             .ok_or(VestingErrorCode::ArithmeticOverflow)?;
 
         if amount > 0 {
             // Transfer releasable tokens to user
-            transfer_tokens_helper(
-                &ctx.accounts.vault_account,
+            let vault_seed = &[
+                "token_vault".as_bytes(),
+                &ctx.accounts.valued_token_mint.key().to_bytes(),
+                &ctx.accounts.escrow_token_mint.key().to_bytes(),
+                &[ctx.bumps.vault_account],
+            ];
+            let vault_signer = &[&vault_seed[..]];
+
+            // Transfer releasable tokens
+            transfer_tokens(
                 &ctx.accounts.valued_vault_token_account,
                 &ctx.accounts.valued_token_mint,
                 &ctx.accounts.user_valued_token_account,
-                &None,
-                &ctx.accounts.owner,
-                &ctx.accounts.backend,
-                &ctx.accounts.valued_token_mint,
-                &ctx.accounts.escrow_token_mint,
                 &ctx.accounts.valued_token_program,
                 amount,
-                ctx.bumps.vault_account
+                ctx.accounts.vault_account.to_account_info(),
+                Some(vault_signer),
             )?;
         }
 
         // Update vesting session state
-        vesting_session.amount_withdrawn = vesting_session.amount_withdrawn
+        vesting_session.amount_withdrawn = vesting_session
+            .amount_withdrawn
             .checked_add(amount)
             .ok_or(VestingErrorCode::ArithmeticOverflow)?;
 

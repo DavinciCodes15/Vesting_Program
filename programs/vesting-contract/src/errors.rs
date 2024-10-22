@@ -1,20 +1,26 @@
-use anchor_lang::{ error_code, prelude::ProgramError };
+use anchor_lang::{error_code, prelude::ProgramError};
 
 /// Custom error codes for the contract
 #[error_code]
 pub enum VestingErrorCode {
-    #[msg("Insufficient funds.")]
+    #[msg("Insufficient funds")]
     InsufficientFunds,
-    #[msg("Not Enough token was released to withdraw.")]
+    #[msg("Not Enough token was released to withdraw")]
     InsufficientWithdrawalAmount,
-    #[msg("Minimum amount not met.")]
+    #[msg("Amount can not be zero")]
+    MinimumAmountHigherZero,
+    #[msg("Minimum amount not met")]
     MinimumAmountNotMet,
-    #[msg("Arithmetic overflow occurred.")]
+    #[msg("Arithmetic overflow occurred")]
     ArithmeticOverflow,
-    #[msg("Division by zero attempted.")]
+    #[msg("Division by zero attempted")]
     DivisionByZero,
-    #[msg("Interacting with canceled session.")]
+    #[msg("Interacting with canceled session")]
     InteractingWithCanceledSession,
+    #[msg("Unathorized to execute this operation")]
+    UnathorizedToExecute,
+    #[msg("Invalid metadata received")]
+    InvalidMeta,
 }
 
 // Implementation to convert ErrorCode to ProgramError
