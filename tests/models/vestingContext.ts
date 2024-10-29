@@ -16,6 +16,8 @@ class VestingContext {
   vestingSessionsAccount: PublicKey;
   backendDataAccount: PublicKey;
   programDataAccount = new PublicKey("2apvde2rstcLrHaXeTz7vfoDcW1RfVgRjrDXNMN9Gms7");
+  appId = "test-app";
+
   private readonly programId;
 
   constructor(contextParams: IVestingContextParams) {
@@ -23,12 +25,12 @@ class VestingContext {
     this.programId = contextParams.programId;
 
     [this.backendDataAccount] = PublicKey.findProgramAddressSync(
-      [Buffer.from("backend_data")],
+      [Buffer.from("davincij15_seed")],
       this.programId
     );
 
     [this.escrowTokenMintAccount] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow_mint"), valuedToken.mintAddress.toBuffer()],
+      [Buffer.from("escrow_mint"), valuedToken.mintAddress.toBuffer(), Buffer.from(this.appId)],
       this.programId
     );
 

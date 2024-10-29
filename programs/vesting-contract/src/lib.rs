@@ -98,6 +98,7 @@ pub mod vesting_contract {
         ctx.accounts.vault_account.creator = ctx.accounts.payer.key();
         ctx.accounts.vault_account.valued_token_mint = ctx.accounts.valued_token_mint.key();
         ctx.accounts.vault_account.escrow_token_mint = ctx.accounts.escrow_token_mint.key();
+        ctx.accounts.vault_account.app_id = metadata.app_id;
 
         msg!("Escrow token structure created successfully");
 

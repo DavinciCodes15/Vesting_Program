@@ -27,7 +27,7 @@ pub struct SetBackendAccountCtx<'info> {
     #[account(
         init_if_needed,
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump,
         payer = payer,
@@ -46,6 +46,7 @@ pub struct InitEscrowTokenParams {
     pub name: String,
     pub symbol: String,
     pub uri: String,
+    pub app_id: String,
 }
 
 /// Account structure for vault account
@@ -55,6 +56,8 @@ pub struct VaultAccount {
     pub creator: Pubkey, // Public key of the account that requested the creation of the token
     pub valued_token_mint: Pubkey, // Public key of the valued token mint
     pub escrow_token_mint: Pubkey, // public key of the escrow token mint
+    #[max_len(100)]
+    pub app_id: String, //Unique id of the app used to create the escrow
 }
 
 /// Accounts required for initializing a new token
@@ -71,7 +74,7 @@ pub struct InitEscrowToken<'info> {
     // Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump        
     )]
@@ -100,6 +103,7 @@ pub struct InitEscrowToken<'info> {
         seeds = [
             b"escrow_mint",
             valued_token_mint.key().as_ref(),
+            params.app_id.as_bytes(),
         ],
         bump,
         payer = payer,
@@ -128,7 +132,7 @@ pub struct InitVaultTokenAccounts<'info> {
     // Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump        
     )]
@@ -193,7 +197,7 @@ pub struct ChangeEscrowMetadataAccounts<'info> {
     //Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump
     )]
@@ -233,7 +237,7 @@ pub struct Exchange<'info> {
     //Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump
     )]
@@ -327,7 +331,7 @@ pub struct CreateVestingSession<'info> {
     //Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump
     )]
@@ -407,7 +411,7 @@ pub struct SessionWithdraw<'info> {
     //Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump
     )]
@@ -476,7 +480,7 @@ pub struct SessionCancelation<'info> {
     //Backend authorization
     #[account(
         seeds = [
-            b"backend_data"
+            b"davincij15_seed"
         ],
         bump
     )]

@@ -20,7 +20,6 @@ import { assert } from "chai";
 import ValuedToken from "./models/valuedToken";
 import VestingContext from "./models/vestingContext";
 import testAccount from "./vanity_accounts/testWroMBjmRex6dkA6UkcLQq8cSMLfSVmgAJFi6zoV.json";
-import { Metadata } from "@metaplex-foundation/mpl-token-metadata";
 
 //run local validator using:  solana-test-validator --reset --clone-upgradeable-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s --deactivate-feature EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33 --url https://api.mainnet-beta.solana.com
 
@@ -182,6 +181,7 @@ describe("vesting-contract", () => {
         name: valuedToken.description.name,
         symbol: "es" + valuedToken.description.symbol,
         uri: valuedToken.description.uri,
+        appId: vestingContext.appId,
       })
       .accounts({
         valuedTokenProgram: valuedToken.mintInfo.owner,
@@ -235,6 +235,8 @@ describe("vesting-contract", () => {
 
     assert.isNotEmpty(programVaultTokenAccounts.escrowTokenVault);
     assert.isNotEmpty(programVaultTokenAccounts.valuedTokenVault);
+
+    assert.equal(vaultData.appId, vestingContext.appId);
 
     logDebug(`Token initialized`);
   });
