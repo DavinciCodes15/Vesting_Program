@@ -3,6 +3,7 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, Token2022, TokenAccount, TokenInterface},
 };
+use wormhole_solana_utils::cpi::bpf_loader_upgradeable as bpf;
 
 // ##### set_backend_account #####
 
@@ -23,6 +24,12 @@ pub struct BackendAccountData {
 #[instruction(params: SetBackendAccountParams)]
 pub struct SetBackendAccountCtx<'info> {
     pub system_program: Program<'info, System>,
+    #[account(
+        mut,
+        seeds = [crate::ID.as_ref()],
+        bump,
+        seeds::program = bpf:: BpfLoaderUpgradeable::id(),
+    )]
     pub program_data: Account<'info, ProgramData>,
     #[account(
         init_if_needed,

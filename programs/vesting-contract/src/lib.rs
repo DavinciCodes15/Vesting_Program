@@ -1,8 +1,10 @@
 pub mod errors;
+pub mod events;
 pub mod helpers;
 pub mod vesting_accounts;
 
 use crate::errors::*;
+use crate::events::*;
 use crate::vesting_accounts::*;
 use anchor_lang::prelude::*;
 
@@ -100,13 +102,23 @@ pub mod vesting_contract {
         ctx.accounts.vault_account.escrow_token_mint = ctx.accounts.escrow_token_mint.key();
         ctx.accounts.vault_account.app_id = metadata.app_id;
 
-        msg!("Escrow token structure created successfully");
+        emit!(EscrowCreatedEvent {
+            creator: ctx.accounts.payer.key(),
+            valued_token_mint: ctx.accounts.valued_token_mint.key(),
+            escrow_token_mint: ctx.accounts.escrow_token_mint.key(),
+            vault_account: ctx.accounts.vault_account.key(),
+            app_id: ctx.accounts.vault_account.app_id.clone(),
+        });
 
         Ok(())
     }
 
-    pub fn init_vault_token_accounts(_ctx: Context<InitVaultTokenAccounts>) -> Result<()> {
-        msg!("Token accounts created successfully");
+    pub fn init_vault_token_accounts(ctx: Context<InitVaultTokenAccounts>) -> Result<()> {
+        emit!(VaultAccountInitializedEvent {
+            vault_account: ctx.accounts.vault_account.key(),
+            valued_vault_token_account: ctx.accounts.valued_vault_token_account.key(),
+            escrow_vault_token_account: ctx.accounts.escrow_vault_token_account.key(),
+        });
         Ok(())
     }
 
@@ -151,7 +163,11 @@ pub mod vesting_contract {
             ctx.accounts.system_program.to_account_info(),
         )?;
 
-        msg!("Escrow token structure updated successfully");
+        emit!(EscrowMetadataChangedEvent {
+            escrow_token_mint: ctx.accounts.escrow_token_mint.key(),
+            field_updated: metadata.param_key.clone(),
+            value: metadata.value.clone(),
+        });
         Ok(())
     }
 
@@ -159,7 +175,7 @@ pub mod vesting_contract {
     pub fn exchange(ctx: Context<Exchange>, amount: u64) -> Result<()> {
         require!(amount > 0, VestingErrorCode::MinimumAmountHigherZero);
         require!(
-            ctx.accounts.user_valued_token_account.amount > amount,
+            ctx.accounts.user_valued_token_account.amount >= amount,
             VestingErrorCode::InsufficientFunds
         );
 
@@ -185,6 +201,11 @@ pub mod vesting_contract {
             ctx.bumps.vault_account,
             amount,
         )?;
+
+        emit!(ExchangedEvent {
+            vault_account: ctx.accounts.vault_account.key(),
+            amount: amount,
+        });
 
         Ok(())
     }
@@ -224,6 +245,13 @@ pub mod vesting_contract {
             ctx.accounts.user.to_account_info(),
             None,
         )?;
+
+        emit!(CreatedVestingSessionEvent {
+            vault_account: ctx.accounts.vault_account.key(),
+            vesting_session: vesting_session.key(),
+            user: ctx.accounts.user.key(),
+            amount: amount,
+        });
 
         Ok(())
     }
@@ -266,6 +294,14 @@ pub mod vesting_contract {
                 .checked_add(amount_to_release)
                 .ok_or(VestingErrorCode::ArithmeticOverflow)?;
             vesting_session.last_withdraw_at = Clock::get()?.unix_timestamp as u64;
+
+            emit!(SessionWithdrawnEvent {
+                vault_account: ctx.accounts.vault_account.key(),
+                vesting_session: vesting_session.key(),
+                user: ctx.accounts.user.key(),
+                amount: amount_to_release,
+                time: vesting_session.last_withdraw_at,
+            });
 
             return Ok(());
         }
@@ -339,6 +375,16 @@ pub mod vesting_contract {
 
         // Mark the session as cancelled
         vesting_session.cancelled_at = Clock::get()?.unix_timestamp as u64;
+
+        emit!(SessionCancelEvent {
+            vault_account: ctx.accounts.vault_account.key(),
+            vesting_session: vesting_session.key(),
+            user: ctx.accounts.user.key(),
+            valued_amount: valued_amount_to_release,
+            escrow_amount: escrow_amount_to_get_back,
+            time: vesting_session.cancelled_at,
+        });
+
         Ok(())
     }
 
@@ -389,6 +435,15 @@ pub mod vesting_contract {
 
         // Mark the session as cancelled
         vesting_session.cancelled_at = Clock::get()?.unix_timestamp as u64;
+
+        emit!(SessionExitEvent {
+            vault_account: ctx.accounts.vault_account.key(),
+            vesting_session: vesting_session.key(),
+            user: ctx.accounts.user.key(),
+            amount: amount,
+            time: vesting_session.cancelled_at,
+        });
+
         Ok(())
     }
 }
