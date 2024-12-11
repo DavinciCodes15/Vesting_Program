@@ -119,44 +119,33 @@ pub fn transfer_tokens<'info>(
 /// Calculates the amount of tokens to release in a vesting session
 pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u64> {
     // Constants
-    const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60; // 180 days * 24 hours * 60 minutes
+    const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60 * 60; // 180 days * 24 hours * 60 minutes
+    const SIX_MONTHS_IN_SECONDS: u64 = SIX_MONTHS_IN_MINUTES * 60; // SIX_MONTHS_IN_MINUTES * 60 seconds
 
     // Get current time
     let clock = Clock::get()?;
-    let now = clock.unix_timestamp as u64;
-    let current_time_minutes = now
-        .checked_div(60)
-        .ok_or(VestingErrorCode::DivisionByZero)?;
+    let current_time_seconds = clock.unix_timestamp as u64;
 
     // Calculate vesting end time
-    let vesting_start_minutes = vesting_session
-        .start_date
-        .checked_div(60)
-        .ok_or(VestingErrorCode::DivisionByZero)?;
-    let vesting_end_time = vesting_start_minutes
-        .checked_add(SIX_MONTHS_IN_MINUTES)
+    let vesting_start = vesting_session.start_date;
+    let vesting_end_time = vesting_start
+        .checked_add(SIX_MONTHS_IN_SECONDS)
         .ok_or(VestingErrorCode::ArithmeticOverflow)?;
 
     // Check if vesting period has ended
-    if current_time_minutes >= vesting_end_time {
+    if current_time_seconds >= vesting_end_time {
         // Vesting period has ended, return full remaining amount
         return Ok(vesting_session
             .amount
             .saturating_sub(vesting_session.amount_withdrawn));
     }
 
-    // Cap the current time at the end of the vesting period
-    let current_time = std::cmp::min(current_time_minutes, vesting_end_time);
-
     // Calculate elapsed time since last withdrawal or start
-    let last_withdraw_minutes = vesting_session
-        .last_withdraw_at
-        .checked_div(60)
-        .ok_or(VestingErrorCode::DivisionByZero)?;
-    let elapsed_minutes = if vesting_session.last_withdraw_at > 0 {
-        current_time.saturating_sub(last_withdraw_minutes)
+    let last_withdraw_seconds = vesting_session.last_withdraw_at;
+    let elapsed_seconds = if last_withdraw_seconds > 0 {
+        current_time_seconds.saturating_sub(last_withdraw_seconds)
     } else {
-        current_time.saturating_sub(vesting_start_minutes)
+        current_time_seconds.saturating_sub(vesting_start)
     };
 
     // Calculate amount to be released
@@ -164,7 +153,9 @@ pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u
         .amount
         .checked_div(SIX_MONTHS_IN_MINUTES)
         .ok_or(VestingErrorCode::DivisionByZero)?;
-    let amount_released = elapsed_minutes
+    let amount_released = elapsed_seconds
+        .checked_div(60)
+        .ok_or(VestingErrorCode::DivisionByZero)?
         .checked_mul(amount_per_minute)
         .ok_or(VestingErrorCode::ArithmeticOverflow)?;
 
@@ -175,4 +166,58 @@ pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u
     let amount_to_release = std::cmp::min(amount_released, available_to_withdraw);
 
     Ok(amount_to_release)
+}
+
+pub mod token_2022_validations {
+    use crate::VestingErrorCode;
+    use anchor_lang::err;
+    use anchor_lang::prelude::{AccountInfo, Pubkey};
+    use anchor_spl::token::spl_token;
+    use anchor_spl::token_2022::spl_token_2022;
+    use anchor_spl::token_interface::spl_token_2022::extension::ExtensionType;
+    use anchor_spl::token_interface::spl_token_2022::extension::{
+        BaseStateWithExtensions, StateWithExtensions,
+    };
+
+    const VALID_LIQUIDITY_TOKEN_EXTENSIONS: &[ExtensionType] = &[
+        ExtensionType::MintCloseAuthority,
+        ExtensionType::MetadataPointer,
+        ExtensionType::PermanentDelegate,
+        ExtensionType::TransferFeeConfig,
+        ExtensionType::TokenMetadata,
+        ExtensionType::TransferHook,
+    ];
+
+    pub fn validate_token_extensions(mint_acc_info: &AccountInfo) -> anchor_lang::Result<()> {
+        if mint_acc_info.owner == &spl_token::id() {
+            return Ok(());
+        }
+
+        let mint_data = mint_acc_info.data.borrow();
+        let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+
+        for mint_ext in mint.get_extension_types()? {
+            if !VALID_LIQUIDITY_TOKEN_EXTENSIONS.contains(&mint_ext) {
+                return err!(VestingErrorCode::UnsupportedTokenExtension);
+            }
+            if mint_ext == ExtensionType::TransferFeeConfig {
+                let ext = mint
+                    .get_extension::<spl_token_2022::extension::transfer_fee::TransferFeeConfig>(
+                    )?;
+                if <u16>::from(ext.older_transfer_fee.transfer_fee_basis_points) != 0
+                    || <u16>::from(ext.newer_transfer_fee.transfer_fee_basis_points) != 0
+                {
+                    return err!(VestingErrorCode::UnsupportedTokenExtension);
+                }
+            } else if mint_ext == ExtensionType::TransferHook {
+                let ext =
+                    mint.get_extension::<spl_token_2022::extension::transfer_hook::TransferHook>()?;
+                let hook_program_id: Option<Pubkey> = ext.program_id.into();
+                if hook_program_id.is_some() {
+                    return err!(VestingErrorCode::UnsupportedTokenExtension);
+                }
+            }
+        }
+        Ok(())
+    }
 }

@@ -21,6 +21,8 @@ pub enum VestingErrorCode {
     UnathorizedToExecute,
     #[msg("Invalid metadata received")]
     InvalidMeta,
+    #[msg("Received valued token implements a token extension not supported by the vesting app")]
+    UnsupportedTokenExtension,
 }
 
 // Implementation to convert ErrorCode to ProgramError

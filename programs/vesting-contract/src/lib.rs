@@ -15,8 +15,8 @@ declare_id!("GZ5Q5XdSv4PARXMn5ZGAvF7KjafLStsCGwEAzjowpqsw");
 pub mod vesting_contract {
 
     use crate::helpers::{
-        calculate_amount_to_release, transfer_escrow_from_vault, transfer_tokens,
-        update_account_lamports_to_minimum_balance,
+        calculate_amount_to_release, token_2022_validations, transfer_escrow_from_vault,
+        transfer_tokens, update_account_lamports_to_minimum_balance,
     };
 
     use anchor_spl::token_interface::{
@@ -64,6 +64,9 @@ pub mod vesting_contract {
         ctx: Context<InitEscrowToken>,
         metadata: InitEscrowTokenParams,
     ) -> Result<()> {
+        token_2022_validations::validate_token_extensions(
+            &ctx.accounts.valued_token_mint.to_account_info(),
+        )?;
         let vault_seed = &[
             b"token_vault".as_ref(),
             &ctx.accounts.valued_token_mint.key().to_bytes(),
@@ -178,6 +181,9 @@ pub mod vesting_contract {
             ctx.accounts.user_valued_token_account.amount >= amount,
             VestingErrorCode::InsufficientFunds
         );
+        token_2022_validations::validate_token_extensions(
+            &ctx.accounts.valued_token_mint.to_account_info(),
+        )?;
 
         // Transfer tokens from user to vault valued token account
         transfer_tokens(
@@ -258,6 +264,9 @@ pub mod vesting_contract {
 
     /// Withdraws vested tokens from a session
     pub fn session_withdraw(ctx: Context<SessionWithdraw>) -> Result<()> {
+        token_2022_validations::validate_token_extensions(
+            &ctx.accounts.valued_token_mint.to_account_info(),
+        )?;
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
         require!(
@@ -311,6 +320,9 @@ pub mod vesting_contract {
 
     /// Cancels an ongoing vesting session
     pub fn session_cancel(ctx: Context<SessionCancelation>) -> Result<()> {
+        token_2022_validations::validate_token_extensions(
+            &ctx.accounts.valued_token_mint.to_account_info(),
+        )?;
         let vesting_session = &mut ctx.accounts.vesting_session_account;
 
         require!(
