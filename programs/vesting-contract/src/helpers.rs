@@ -119,7 +119,7 @@ pub fn transfer_tokens<'info>(
 /// Calculates the amount of tokens to release in a vesting session
 pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u64> {
     // Constants
-    const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60 * 60; // 180 days * 24 hours * 60 minutes
+    const SIX_MONTHS_IN_MINUTES: u64 = 180 * 24 * 60; // 180 days * 24 hours * 60 minutes
     const SIX_MONTHS_IN_SECONDS: u64 = SIX_MONTHS_IN_MINUTES * 60; // SIX_MONTHS_IN_MINUTES * 60 seconds
 
     // Get current time
@@ -171,7 +171,7 @@ pub fn calculate_amount_to_release(vesting_session: &VestingSession) -> Result<u
 pub mod token_2022_validations {
     use crate::VestingErrorCode;
     use anchor_lang::err;
-    use anchor_lang::prelude::{AccountInfo, Pubkey};
+    use anchor_lang::prelude::AccountInfo;
     use anchor_spl::token::spl_token;
     use anchor_spl::token_2022::spl_token_2022;
     use anchor_spl::token_interface::spl_token_2022::extension::ExtensionType;
@@ -183,9 +183,7 @@ pub mod token_2022_validations {
         ExtensionType::MintCloseAuthority,
         ExtensionType::MetadataPointer,
         ExtensionType::PermanentDelegate,
-        ExtensionType::TransferFeeConfig,
         ExtensionType::TokenMetadata,
-        ExtensionType::TransferHook,
     ];
 
     pub fn validate_token_extensions(mint_acc_info: &AccountInfo) -> anchor_lang::Result<()> {
@@ -199,23 +197,6 @@ pub mod token_2022_validations {
         for mint_ext in mint.get_extension_types()? {
             if !VALID_LIQUIDITY_TOKEN_EXTENSIONS.contains(&mint_ext) {
                 return err!(VestingErrorCode::UnsupportedTokenExtension);
-            }
-            if mint_ext == ExtensionType::TransferFeeConfig {
-                let ext = mint
-                    .get_extension::<spl_token_2022::extension::transfer_fee::TransferFeeConfig>(
-                    )?;
-                if <u16>::from(ext.older_transfer_fee.transfer_fee_basis_points) != 0
-                    || <u16>::from(ext.newer_transfer_fee.transfer_fee_basis_points) != 0
-                {
-                    return err!(VestingErrorCode::UnsupportedTokenExtension);
-                }
-            } else if mint_ext == ExtensionType::TransferHook {
-                let ext =
-                    mint.get_extension::<spl_token_2022::extension::transfer_hook::TransferHook>()?;
-                let hook_program_id: Option<Pubkey> = ext.program_id.into();
-                if hook_program_id.is_some() {
-                    return err!(VestingErrorCode::UnsupportedTokenExtension);
-                }
             }
         }
         Ok(())
